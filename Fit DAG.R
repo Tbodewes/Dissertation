@@ -200,13 +200,30 @@ recompute <- function(dag, dat, penalty, moves = NULL, node.scores = NULL,
   return(list(moves = moves, nodeScores = node.scores, queries = no.queries))
 }
 
-#Computes number of queries involved in rescoring the moves dataframe. Each
-#arc addition or deletion can be scored in one query, each reversal in two
+#Computes number of queries involved in rescoring the moves dataframe for a 
+#given DAG. Each arc addition or deletion can be scored in one query, each 
+#reversal can be scored in two
 computeNoQueries <- function(moves, dag){
   return(sum(apply(moves[moves$recompute,], 1, function(move){
     ifelse(findMoveType(move[1], move[2], dag) == "reverse", 2, 1)})))
 }
 
+#' Computes score change due to a move
+#'
+#' Compares the pre- and post-move score for nodes of which the parental set
+#' changes due to the move. For arc addition or deletion this is the to node,
+#' for arc reversal this is the to and the from node.
+#'
+#' @param move character vector containing to and from node for move
+#' @param node.scores pre-move node scores
+#' @inheritParams evaluateHC
+#'
+#' @return score difference due to move if move is valid and data is available
+#'   for each parental configuration. If new graph is cyclic, returns -Inf. 
+#'   If there is no data available for some parental configuration, returns NaN
+#'   and prints a warning
+#' @export
+#' 
 evaluateScore <- function(move, dat, node.scores, dag, penalty){
   
   #Obtain move type and DAG after applying move
@@ -236,7 +253,23 @@ evaluateScore <- function(move, dat, node.scores, dag, penalty){
   return(scoreDiff)
 }
 
-makeMove <- function(node.from, node.to, dag, moveType){
+#' Applies move to a DAG and returns new graph
+#'
+#' Whether the move is an addition, deletion or reversal depends on whether the
+#' arc or its reverse is already present in the DAG
+#'
+#' @param node.from string specifying first node in move
+#' @param node.to string specifying second node in move
+#' @param moveType optional string specifying whether the move is an arc
+#'   addition ("add"), deletion ("delete") or reversal ("reverse")
+#'
+#' @return If move gives a DAG, it is returned, otherwise a "try-error" is
+#'   returned
+#' @export
+#'
+#' @examples
+makeMove <- function(node.from, node.to, dag, 
+                     moveType = findMoveType(node.from, node.to, dag)){
   if(moveType == "add")
   {try(set.arc(dag, node.from, node.to), silent = TRUE) %>% return(.)}
   else if(moveType == "delete")
@@ -245,12 +278,46 @@ makeMove <- function(node.from, node.to, dag, moveType){
   {try(reverse.arc(dag, node.from, node.to), silent = TRUE) %>% return(.)}
 }
 
+
+#' Determines whether a move is an arc addition, deletion or reversal for a
+#' given DAG
+#'
+#' @inheritParams makeMove
+#'
+#' @return If no arc is present from node.from to node.to, returns "add". If an
+#'   arc is present, returns "delete". If an arc from node.to to node.from is
+#'   present, returns "reverse"
+#' @export
+#'
+#' @examples
 findMoveType <- function(node.from, node.to, dag){
   if(node.from %in% parents(dag, node.to)){return("delete")}
   else if(node.to %in% parents(dag, node.from)){return("reverse")}
   else {return("add")}
 }
 
+#' Determines whether a given move leads to a valid DAG
+#'
+#' Checks whether a move does not lead to directed cycles. If a tabu list is
+#' provided, it checks whether the new graph is not Markov equivalent to any
+#' graph in the tabu list. If a dataset over nodes is provided, it checks
+#' whether data is available for each parental configuration in the new graph.
+#' 
+#' The last is not relevant during hill climbing or tabu search, as such moves
+#' will have score -Inf, but it is relevant during random restarts to ensure 
+#' that we do not start with a graph with NaN score because data is unavailable
+#' for some parental configuration for a node.
+#'
+#' @param tabuList optional tabu list of DAGs
+#' @param dat optional dataframe to be used when checking whether data is
+#'   available for each parental configuration
+#' @inheritParams evaluateScore
+#'
+#' @return TRUE if new graph meets conditions, FALSE otherwise
+#' 
+#' @export
+#'
+#' @examples
 checkIfAllowed <- function(move, dag, tabuList = list(), dat = NULL){
   node.from <- move[1]
   node.to <- move[2]
@@ -274,22 +341,47 @@ checkIfAllowed <- function(move, dag, tabuList = list(), dat = NULL){
   return(!graphInList(proposedDag, tabuList))
 }
 
+
+#' Finds allowed move with largest associated score change
+#'
+#' @param moves dataframe of moves with updated scores
+#' @inheritParams checkIfAllowed 
+#'
+#' @return allowed move with largest associated score change
+#' 
+#' @export
+#'
+#' @examples
 findBestAllowedMove <- function(moves, dag, tabuList = list()){
+  if(any(moves$recompute))
+  {warning("Not all scores are up-to-date: found move potentially suboptimal")}
+  
+  #Order score differences from largest to smallest
   scoreOrder <- order(moves$score, decreasing = TRUE)
-  
-  bestMove <- NULL
-  
+
+  #Iterate from largest to smallest score and return first allowed move
   for(moveIndex in scoreOrder)
   {
     currentMove <- as.character(moves[moveIndex, ])
     
     if(checkIfAllowed(currentMove, dag, tabuList))
-    {bestMove <- currentMove; break }
+    {return(currentMove)}
   }
   
-  return(bestMove)
+  #This shouldn't occur for sane tabu list lengths
+  stop("No allowed moves found") 
 }
 
+#' Checks whether a DAG is Markov equivalent to any graph in a given list
+#'
+#' @param dag DAG to compare to graphs in list
+#' @param graphs list of graphs
+#'
+#' @return TRUE if given DAG is Markov equivalent to any graph in list, FALSE
+#'   otherwise
+#' @export
+#'
+#' @examples
 graphInList <- function(dag, graphs){
   #Check whether two DAGs are in the same Markov equivalence class, allowing
   #for either to be null (in which case the comparison returns false)
@@ -306,6 +398,30 @@ graphInList <- function(dag, graphs){
   }
 }
 
+#' Performs tabu search from some initial graph
+#'
+#' Given some initial graph, makes at most tabuSteps moves to graphs that are
+#' not in a tabu list of length at most tabuLength. Each move is the best
+#' allowed move. If any of the obtained graphs has strictly higher score than
+#' the initial graph, the algorithm terminates and the new graph is returned
+#'
+#' If no better graph is found, NULL is returned in place of a graph. Any
+#' function calling this routine should cope gracefully with this scenario
+#'
+#' @param tabuSteps maximum number of tabu search steps to perform
+#' @param tabuLength maximum number of previously seen graphs to store
+#' @param dag.start initial DAG
+#' @inheritParams evaluateHC
+#'
+#' @return If a better DAG than the initial one is found, returns a list
+#'   containing the DAG, an updated moves dataframe and node scores vector and
+#'   the number of queries performed during the search procedure. If no better
+#'   graph is found, returns a list containing a NULL graph and the number of
+#'   queries
+#'
+#' @export
+#'
+#' @examples
 tabuSearch <- function(tabuSteps, tabuLength, dag.start, dat, moves, 
                        node.scores, penalty, cl){
   tabuList <- vector(mode = "list", length = tabuLength)
@@ -347,13 +463,37 @@ tabuSearch <- function(tabuSteps, tabuLength, dag.start, dat, moves,
   return(list(dag = NULL, queries = no.queries.local))
 }
 
+#' Performs a series of random moves on a given DAG
+#'
+#' Given a DAG, performs a given number of random moves. Each random move is
+#' checked to give a valid DAG with data available for each parental
+#' configuration. After performing random moves, recomputes those scores that
+#' need updating.
+#'
+#' As the initial DAG is often sparse and the algorithm randomly generates pairs
+#' of nodes to determine the moves, it tends to favor arc additions. I am not
+#' sure whether I am happy with this, I might change this later and see if it
+#' gives a better performance
+#'
+#' @param randomMoves number of random moves to do
+#' @inheritParams updateHC
+#'
+#' @return list containing DAG after random moves, updated moves dataframe and
+#' node score vector and number of queries used for score recomputation
+#' 
+#' @export
+#'
+#' @examples
 perturbGraph <- function(randomMoves, dag, dat, moves, penalty, cl){
   node.names <- nodes(dag)
   no.moves <- 0
   dag.current <- dag
+  
   while(no.moves < randomMoves){
+    #Generate random move
     move <- sample(node.names, 2, replace = FALSE)
     
+    #Check that move gives a valid graph
     if(checkIfAllowed(move, dag.current, dat = dat)){
       no.moves <- no.moves + 1
       
@@ -374,12 +514,44 @@ perturbGraph <- function(randomMoves, dag, dat, moves, penalty, cl){
   recomputed <- recompute(dag.current, dat, penalty, moves, cl = cl )
   moves <- recomputed$moves
   node.scores <- recomputed$nodeScores
+  no.queries <- recomputed$queries
   
-  return(list(dag = dag.current, moves = moves, nodeScores = node.scores))
+  return(list(dag = dag.current, moves = moves, nodeScores = node.scores,
+              queries = no.queries))
 }
 
 
 
+#' Learns BN structure from data using tabu search with random restarts
+#'
+#' Starts from the empty graph. Uses a hill climber with arc addition, deletion
+#' and reversal operations to find locally optimal graph structures. Score
+#' function is the likelihood minus a term penalizing graph complexity. Uses
+#' tabu search and random restart meta heuristics to decrease the probability of
+#' ending up in a local optimum that is far from the global optimum in score.
+#' Exploits score decomposability to efficiently evaluate the score difference
+#' of each neighbouring graph. Can do most costly computations in parallel
+#' (works well for large n, as computing scores becomes costly in this case).
+#'
+#' Records number of queries involved in computation. Each query involves
+#' computing the score for a single node.
+#'
+#' @param dat dataset to learn BN from
+#' @param penalty determines penalization term on score function. Must be "bic",
+#'   "aic" or a number larger than 0
+#' @param parallel if TRUE, computations are done in parallel where possible,
+#'   using all but one of the available threads on the machine
+#' @param tabuSteps maximum number of steps to do in tabu search
+#' @param tabuLength maximum length of tabu list
+#' @param restarts number of random restarts to do
+#' @param randomMoves number of moves to do on DAG when doing random restart
+#'
+#' @return list containing best DAG found and number of queries involved in the
+#'   computation
+#' @export
+#'
+#' @examples
+#' fit.dag(learning.test, penalty = "bic")
 fit.dag <- function(dat, penalty, parallel = TRUE, 
                     tabuSteps = 10, tabuLength = tabuSteps,
                     restarts = 0, randomMoves = ncol(dat)){
@@ -473,11 +645,11 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
                               penalty = penalty,
                               cl = cl)
     
-    
+    #Retrieve perturbed graph and updated moves and node scores
     dag.current <- perturbed$dag
     moves <- perturbed$moves
     node.scores <- perturbed$nodeScores
-    if(any(is.nan(node.scores))){browser()}
+    no.queries <- perturbed$queries
     
     restart <- restart + 1
   }

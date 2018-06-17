@@ -1,41 +1,112 @@
 source("Scoring.R")
 source("Fit DAG.R")
 library(Rgraphviz)
-library(magrittr)
 library(profvis)
 
-#' **Test scoring function for discrete data**
-#' Learn an appropriate dag from discrete test dataset
-dag <- hc(learning.test)
+#' **Test scoring function and local search for discrete data**
+dat.discrete <- learning.test
+dag.discrete <- model2network("[A][C][F][B|A][D|A:C][E|B:F]")
 
 #' Test by comparing to inbuilt function in complete data case
-computeNAL(dag, learning.test)
-logLik(dag, learning.test)/nrow(learning.test)
+computeNAL(dag.discrete, dat.discrete)
+logLik(dag.discrete, dat.discrete)/nrow(dat.discrete)
 
-#Introduce missing values
-n <- dim(learning.test)[1]
-p <- dim(learning.test)[2]
+#' Introduce missing values
+n <- dim(dat.discrete)[1]
+p <- dim(dat.discrete)[2]
 prob.missing <- 0.2
 miss <- as.data.frame(matrix(rbinom(n*p, 1, prob.missing), nrow = n, ncol = p))
-dat.miss <- learning.test
-dat.miss[miss == 1] <- NA
+discrete.miss <- dat.discrete
+discrete.miss[miss == 1] <- NA
 
 #Verify that function works with missing values, while logLik does not
-computeNAL(dag, dat.miss)
-try(logLik(dag, dat.miss))
+computeNAL(dag.discrete, discrete.miss)
+try(logLik(dag.discrete, discrete.miss))
+#' computeNAL works well and gives a good approximation to the average
+#' log-likelihood found using the full dataset if prob.missing is not too large.
+#' If prob.missing is close to 1, there will be nodes and parent configurations
+#' such that there are no valid observations. In this case the log-likelihood is
+#' NaN (a warning is given)
 
-#computeNAL works well and gives a good approximation to the average log-likelihood
-#found using the full dataset if prob.missing is not too large. If prob.missing
-#is close to 1, there will be nodes and parent configurations such that there are
-#no valid observations. In this case the log-likelihood is NaN (a warning is given)
+#' In full data case, computed scores agree with inbuilt functions for discrete
+#' dataset
+computeScore(dag.discrete, dat.discrete, penalty = "bic")
+BIC(dag.discrete, dat.discrete)/nrow(dat.discrete)
 
-#In full data case, computed scores agree with inbuilt functions for discrete
-#dataset
-computeScore(dag, learning.test, penalty = "bic")
-BIC(dag, learning.test)/nrow(learning.test)
+computeScore(dag, dat.discrete, penalty = "aic")
+AIC(dag.discrete, dat.discrete)/nrow(dat.discrete)
 
-computeScore(dag, learning.test, penalty = "aic")
-AIC(dag, learning.test)/nrow(learning.test)
+#' Local search gives correct DAG up to Markov equivalence in discrete case
+discrete.fitted <- fit.dag(dat.discrete, "bic", parallel = FALSE)
+graphviz.compare(cpdag(discrete.fitted$dag), cpdag(dag.discrete))
+
+
+#' ** Test scoring function and local search for Gaussian data **
+dat.gauss <- gaussian.test
+dag.gauss <- model2network("[A][B][E][G][C|A:B][D|B][F|A:D:E:G]")
+
+#' NAL and inbuilt function agree exactly in full-data case for Gaussian data
+computeNAL(dag.gauss, dat.gauss)
+logLik(dag.gauss, dat.gauss)/nrow(dat.gauss)
+
+#' Introduce missing values
+n <- dim(dat.gauss)[1]
+p <- dim(dat.gauss)[2]
+prob.missing <- 0.2
+miss <- as.data.frame(matrix(rbinom(n*p, 1, prob.missing), nrow = n, ncol = p))
+gauss.miss <- dat.gauss
+gauss.miss[miss == 1] <- NA
+
+#Verify that function works with missing values, while logLik does not
+computeNAL(dag.gauss, gauss.miss)
+try(logLik(dag.gauss, gauss.miss))
+#' NAL gives approximately same likelihood as before while logLik fails 
+
+#' In full data case, computed scores agree with inbuilt functions 
+computeScore(dag.gauss, dat.gauss, penalty = "bic")
+BIC(dag.gauss, dat.gauss)/nrow(dat.gauss)
+
+computeScore(dag, dat.gauss, penalty = "aic")
+AIC(dag.gauss, dat.gauss)/nrow(dat.gauss)
+#' Values disagree very slightly. Must be due to different way of counting
+#' parameters
+#' TODO: Check in bnlearn code how parameters for Gaussians are counted
+
+#' Local search learns correct graph for Gaussian data
+gauss.fitted <- fit.dag(dat.gauss, "bic", parallel = FALSE)
+graphviz.compare(cpdag(gauss.fitted$dag), cpdag(dag.gauss))
+
+#' ** Test scoring function and local search for mixed data **
+dat.mix <- clgaussian.test
+dag.mix <- model2network("[A][B][C][H][D|A:H][F|B:C][E|B:D][G|A:D:E:F]")
+
+#' Very minor disagreement, not sure why. Could be due to rounding somewhere
+computeNAL(dag.mix, dat.mix)
+logLik(dag.mix, dat.mix)/nrow(dat.mix)
+
+#' Introduce missing values
+n <- dim(dat.mix)[1]
+p <- dim(dat.mix)[2]
+prob.missing <- 0.2
+miss <- as.data.frame(matrix(rbinom(n*p, 1, prob.missing), nrow = n, ncol = p))
+mix.miss <- dat.mix
+mix.miss[miss == 1] <- NA
+
+#' Verify that function works with missing values, while logLik does not
+computeNAL(dag.mix, mix.miss)
+try(logLik(dag.mix, mix.miss))
+#' NAL works and gives value close to full-data one, while logLik fails
+
+#' In full data case, computed scores agree with inbuilt functions
+computeScore(dag.mix, dat.mix, penalty = "bic")
+BIC(dag.mix, dat.mix)/nrow(dat.mix)
+
+computeScore(dag.mix, dat.mix, penalty = "aic")
+AIC(dag.mix, dat.mix)/nrow(dat.mix)
+
+#' Local search learns correct graph for mixed data
+mix.fitted <- fit.dag(dat.mix, "bic", parallel = FALSE)
+graphviz.compare(cpdag(mix.fitted$dag), cpdag(dag.mix))
 
 
 #### Tests Balov alarm experiment ####

@@ -1,6 +1,21 @@
 library(bnlearn)
 
-#Computes contingency table for a discrete node and its parents in a given DAG
+
+#' Computes sufficient statistics for a node in a Discrete Bayesian Network
+#'
+#' Makes contingency table for a multinomial node and its multinomial parents in
+#' a DAG
+#'
+#' @param node string, name of node
+#' @param dag DAG determining parental sets of nodes
+#' @param dat dataframe with a factor column for each node in network
+#'
+#' @return Contingency table. First dimension corresponds to levels of node,
+#'   further dimensions correspond to levels of parents
+#'
+#' @export
+#'
+#' @examples
 computeCount.node <- function(node, dag, dat){
   currentParents <- parents(dag, node)
   familydata <- na.omit(dat[,c(node, currentParents)])
@@ -9,16 +24,15 @@ computeCount.node <- function(node, dag, dat){
 }
 
 #' Computes conditional counts per node in a discrete Bayesian network
-#' 
 #'
-#' @param dag Directed acyclic graph determining which parents to use for each 
-#' node
-#' @param dat Dataframe with a factor column for each variable
-#' @param cl Optional parallel cluster. Must have bnlearn loaded
-#' and each cluster must have access to dataframe 'dat' 
 #'
-#' @return List of arrays. First dimension in each array corresponds to different
-#' levels of node, all other dimensions correspond to different levels of parents
+#' @inheritParams computeCount.node
+#' @param cl Optional parallel cluster. Must have bnlearn loaded and each
+#'   cluster must have access to dataframe 'dat'
+#'
+#' @return List of arrays. First dimension in each array corresponds to
+#'   different levels of node, all other dimensions correspond to different
+#'   levels of parents
 #' @export
 #'
 #' @examples
@@ -37,30 +51,35 @@ computeCounts <- function(dag, dat, cl = NULL){
 }
 
 
-#' Compute node-average log-likelihood for a DBN and a dataset 
+#' Compute node-average log-likelihood for a CGN and a given dataset
 #'
-#' @param dag directed acyclic graph to be used
-#' @param df dataframe of factors to be used
+#' Allows computation of likelihood over a Bayesian network in the presence of
+#' missing data
 #'
-#' @return
+#' @inheritParams computeCount.node
+#' @param dat dataframe to be used. Columns can be factors or continuous
+#'   variables
+#'
+#' @return Node-average likelihood per observation (logLik will return the sum
+#'   of likelihoods over observations)
+#'
 #' @export
 #'
 #' @examples
 computeNAL <- function(dag, dat){
   node.names <- names(dat)
   logl.nodes <- sapply(node.names, function(node)
-  {computeNAL.discrete(node, dag, dat)$logl})
+  {computeNAL.node(node, dag, dat)$logl})
   logl <- sum(logl.nodes)
-  
   return(logl)
 }
 
 
 #' Determines which parents of a given node are continuous RV
 #'
-#' @param node string giving node whose parents should be inspected
-#' @param dag DAG determining parental set
-#' @param dat dataset informing whether a variable is numeric or a factor
+#' @param node name of node under inspection
+#' @param dag DAG determining parental sets
+#' @param dat dataset
 #'
 #' @return logical vector with an entry for each parent. TRUE if parent is
 #'   numeric in dat, FALSE if parent is a factor
@@ -72,11 +91,39 @@ parentsContinuous <- function(node, dag, dat){
     is.numeric(dat[[parent]])}))
 }
 
+#' Computes node-average likelihood for a single node
+#'
+#' @inheritParams parentsContinuous 
+#'
+#' @return NAL for given node
+#' 
+#' @export
+#'
+#' @examples
+computeNAL.node <- function(node, dag, dat){
+  if(is.factor(dat[[node]])){
+    return(computeNAL.discrete(node, dag, dat))
+  }
+  else{
+    return(computeNAL.gaussian(node, dag, dat))
+  }
+}
+
+
+#' Computes NAL for discrete nodes in CGNs
+#'
+#' @inheritParams computeNAL.node
+#'
+#' @return NAL for given node
+#' @export
+#'
+#' @examples
 computeNAL.discrete <- function(node, dag, dat){
   
   #Check that none of the discrete node's parents are continuous. If any parent
   #is continuous, return -Inf to indicate that the DAG is invalid
-  if(any(parentsContinuous(node, dag, dat))){return(-Inf)}
+  if(any(parentsContinuous(node, dag, dat)))
+    {return(list(logl = -Inf, df = 0))}
   
   counts <- computeCount.node(node, dag, dat)
   
@@ -108,7 +155,7 @@ computeNAL.discrete <- function(node, dag, dat){
                 " for some configuration of parents\n", 
                 encodeString(node.names[-1], quote = " ") ,
                 ": result is NaN"))
-      return(NaN)
+      return(list(logl = NaN))
     }
     mle.conditional <- sweep(counts, parentIndices, parent.counts, "/")
     
@@ -139,54 +186,90 @@ computeNAL.discrete <- function(node, dag, dat){
 }
 
 
+#' Computes NAL for continuous nodes in CGNs
+#'
+#' @inheritParams computeNAL.node
+#'
+#' @return NAL for given node
+#' @export
+#'
+#' @examples
 computeNAL.gaussian <- function(node, dag, dat){
   #Obtain dataframe with only node and parents, omit rows with missing entries
   currentParents <- parents(dag, node)
   familyData <- na.omit(dat[,c(node, currentParents)])
- 
-  #Deal with case of no parents by filling in MLEs in normal likelihood
-  if(length(currentParents) < 1){
-    n <- length(familyData)
-    logl <- sum(dnorm(familyData, mean(familyData), sd(familyData), log = TRUE))
-    return(list(logl = logl/n, df = 2))
-  }
   
-  n <- nrow(familyData)
-  
-  #Determine which parents are continuous and which are discrete
-  whichParentsContinuous <- parentsContinuous(node, dag, dat)
-  continuousParents <- currentParents[whichParentsContinuous]
-  discreteParents <- currentParents[!whichParentsContinuous]
-  
-  #Regress node on continuous parents
-  f <- as.formula(paste(node, "~", paste(continuousParents, collapse = " + ")))
-  
-  #If there are discrete parents, do separate regression for each configuration
-  if(length(discreteParents) > 0){
-    dataConfigs <- split(familyData, familyData[,discreteParents])
+  #If there are no parents, use unconditional MLEs 
+  if(length(currentParents) == 0){
+    logl <- mean(dnorm(familyData, mean(familyData), sd(familyData), 
+                       log = TRUE))  
+    no.params <- 2
     
-    #Log-likelihood is sum of log-likelihoods for each observation. Hence it is
-    #already proportional to the counts for each configuration
-    weighted.logl <- sum(sapply(dataConfigs, function(dataConfig){
-      return(as.vector(logLik(lm(f, data = dataConfig))))
-    }))
-    no.params <- length(dataConfigs)*(length(continuousParents)+2)
-  } else{
-    weighted.logl <- as.vector(logLik(lm(f, data = familyData)))
-    no.params <- length(continuousParents) + 2
+  } else {
+    n <- nrow(familyData)
+    
+    #Determine which parents are continuous and which are discrete
+    whichParentsContinuous <- parentsContinuous(node, dag, dat)
+    continuousParents <- currentParents[whichParentsContinuous]
+    discreteParents <- currentParents[!whichParentsContinuous]
+    
+    #If there are no continuous parents, use conditional MLEs for each parental
+    #configuration
+    if(length(continuousParents) == 0){
+      #Split into datasets for each configuration of discrete parents
+      discreteParents <- currentParents
+      dataConfigs <- split(familyData, familyData[,discreteParents])
+      
+      #Compute average log-likelihood for each configuration, multiplied by
+      #number of observations for each configuration
+      logl <- sum(sapply(dataConfigs, function(dataConfig){
+        x <- dataConfig[, node]
+        return(sum(dnorm(x, mean(x), sd(x), log = TRUE)))}))/n
+      
+      no.params <- length(dataConfigs)*2
+      
+      #If there are continuous parents, regress current node on continuous parents
+    } else {
+      f <- as.formula(paste(node, "~", paste(continuousParents, collapse = " + ")))
+      
+      #If there are no discrete parents, do a single regression
+      if(length(discreteParents) == 0){
+        logl <- as.vector(logLik(lm(f, data = familyData)))/n
+        no.params <- length(continuousParents) + 2
+        
+        #If there are discrete and continuous parents, do a regression for each
+        #parental configuration    
+      } else {
+        dataConfigs <- split(familyData, familyData[,discreteParents])
+        
+        #Log-likelihood is sum of log-likelihoods for each observation. Hence it
+        #is already proportional to the counts for each configuration
+        logl <- sum(sapply(dataConfigs, function(dataConfig){
+          return(as.vector(logLik(lm(f, data = dataConfig)))) }))/n
+        
+        no.params <- length(dataConfigs)*(length(continuousParents)+2)
+      }
+    }
   }
   
-  return(list(logl = weighted.logl/n, df = no.params))
+  return(list(logl = logl, df = no.params))
 }
 
+
+#' Compute penalized likelihood for a node in a CGN
+#'
+#' @inheritParams computeNAL.node
+#' @param penalty string determining how fast the complexity penalty grows in n.
+#'   Options are "bic" (log(n)/n), "aic" (1/n) or any number larger than 0, in
+#'   which case the penalty grows as n^(-number)
+#'
+#' @return score for given node
+#' @export
+#'
+#' @examples
 computeScore.node <- function(node, dag, dat, penalty){
   
-  if(is.factor(dat[[node]])){
-    NAL <- computeNAL.discrete(node, dag, dat)
-  }
-  else{
-    NAL <- computeNAL.gaussian(node, dag, dat)
-  }
+  NAL <- computeNAL.node(node, dag, dat)
   logl <- NAL$logl
   no.params <- NAL$df
   
@@ -206,18 +289,28 @@ computeScore.node <- function(node, dag, dat, penalty){
   if(bic){penaltyFactor <- 0.5*log(n)/n}
   else if (aic){penaltyFactor <- 1/n}
   else {penaltyFactor <- 1/no.nodes * n^(-alpha)}
-
+  
   nodeScore <-  logl - penaltyFactor*no.params
   return(nodeScore)
 }
 
 
+#' Compute score for CGN
+#'
+#' @inheritParams computeScore.node
+#' @param cl optional parallel cluster. Should have relevant functions, packages
+#'   and data pre-loaded
+#'
+#' @return score for full network on given dataset
+#' @export
+#'
+#' @examples
 computeScore <- function(dag, dat, penalty, cl = NULL){
   
   node.names <- names(dat)
   score.nodes <- sapply(node.names, computeScore.node, dag = dag, dat = dat,
                         penalty = penalty)
-  browser()
+  
   score <- mean(score.nodes, na.rm = TRUE)*nnodes(dag)
   
   return(score)

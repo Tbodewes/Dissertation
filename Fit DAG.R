@@ -221,7 +221,6 @@ computeNoQueries <- function(moves, dag){
 #' @export
 #' 
 evaluateScore <- function(move, dat, node.scores, dag, penalty){
-  
   #Obtain move type and DAG after applying move
   node.from <- move[1]
   if(!node.from %in% nodes(dag)) {node.from <- str_trim(node.from)}
@@ -235,15 +234,13 @@ evaluateScore <- function(move, dat, node.scores, dag, penalty){
   if(class(dag.postMove) == "try-error"){return(-Inf)}
   
   #Compute difference in score from changing parent set of to-node
-  count.to <- computeCount.node(node.to, dag.postMove, dat = dat)
-  newScore.to <- computeScore.node(node.to, dag = dag, dat = dat, 
+  newScore.to <- computeScore.node(node.to, dag = dag.postMove, dat = dat, 
                                    penalty = penalty)
   scoreDiff <- newScore.to - node.scores[[node.to]]
   
   #If the move is a reversal, also take into account change at from-node
   if(moveType == "reverse"){
-    count.from <- computeCount.node(node.from, dag.postMove, dat = dat)
-    newScore.from <- computeScore.node(node.from, dag = dag, dat = dat, 
+    newScore.from <- computeScore.node(node.from, dag = dag.postMove, dat = dat, 
                                        penalty = penalty)
     scoreDiff <- scoreDiff + newScore.from - node.scores[node.from]
   }
@@ -329,8 +326,8 @@ checkIfAllowed <- function(move, dag, tabuList = list(), dat = NULL){
   #Check that data is available for all of the configurations of the proposed
   #parental set. Otherwise, the likelikhood is undefined  
   if(!is.null(dat)){
-    proposedScore <- computeNAL.discrete(node.to, proposedDag, dat)$logl
-    if(is.nan(proposedScore)){return(FALSE)}
+    proposedScore <- computeNAL.discrete(node.to, proposedDag, dat)
+    if(length(proposedScore) == 1 && is.nan(proposedScore)){return(FALSE)}
   }
   
   #Check that proposed graph is not Markov equivalent to any graph in the

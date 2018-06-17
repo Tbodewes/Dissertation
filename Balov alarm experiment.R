@@ -29,19 +29,8 @@ generateData <- function(dag, n, no.missing){
   return(df.miss)
 }
 
-evaluateScore <- function(parents, node, penalty, no.nodes){
-  familyData <- na.omit(dat[, c(node, parents)])
-  counts <- table(familyData)
-  
-  score.node <- computeScore.node(counts, penalty, no.nodes)
-  
-  #If any parent configuration has no occurences, we deem it to be 
-  #too complex to learn from our dataset, and give it -Inf score
-  if(is.na(score.node)){score.node <- -Inf}
-  
-  return(score.node)
-}
-
+#TODO: Update and refactor this function, then put it in Fit DAG.R for 
+#later use. Extend to CGNs (restricted parental set). Implement tests
 fit.dag.ordered <- function(node.names, max.parents, dat, penalty){
   
   dag.fitted <- empty.graph(node.names)
@@ -59,6 +48,17 @@ fit.dag.ordered <- function(node.names, max.parents, dat, penalty){
   invisible(clusterExport(cl, c(functionsToLoad)))
   invisible(clusterExport(cl, "dat", envir = environment()))
   
+  wrapperScore <- function(parents, node, penalty, no.nodes){
+    
+    score.node <- computeScore.node(counts, penalty, no.nodes)
+    
+    #If any parent configuration has no occurences, we deem it to be 
+    #too complex to learn from our dataset, and give it -Inf score
+    if(is.na(score.node)){score.node <- -Inf}
+    
+    return(score.node)
+  }
+  
   for(i in 2:no.nodes){
     node <- node.names[i]
     possible.parents <- lapply(0:min(max.parents, i-1), 
@@ -70,7 +70,7 @@ fit.dag.ordered <- function(node.names, max.parents, dat, penalty){
     #parents is large enough 
     if(length(possible.parents) > 100){
     scores <- parSapply(cl, possible.parents, 
-                        FUN = evaluateScore,
+                        FUN = wrapperScore,
                         node = node,
                         penalty = penalty,
                         no.nodes = length(node.names))

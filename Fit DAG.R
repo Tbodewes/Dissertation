@@ -162,10 +162,8 @@ recompute <- function(dag, dat, penalty, moves = NULL, node.scores = NULL,
   #If no cluster is provided, recompute scores sequentially
   if(is.null(cl)){
     #Compute score per node
-    newCounts <- lapply(nodesToRescore, computeCount.node, dag = dag, 
-                        dat = dat)
-    newScores <- sapply(newCounts, computeScore.node, penalty = penalty,
-                        no.nodes = nnodes(dag))
+    newScores <- sapply(nodesToRescore, computeScore.node, dag = dag, 
+                        dat = dat, penalty = penalty)
     node.scores[nodesToRescore] <- newScores
     
     #Update score difference for each move marked for recomputation.
@@ -178,13 +176,11 @@ recompute <- function(dag, dat, penalty, moves = NULL, node.scores = NULL,
   }
   #If a cluster is provided, do same as above but in parallel
   else{
-    newCounts <- parLapply(cl, nodesToRescore, computeCount.node, dag = dag, 
-                           dat = dat)
-    newScores <- parSapply(cl, newCounts, computeScore.node, 
-                           penalty = penalty, no.nodes = nnodes(dag))
+    newScores <- parSapply(cl, nodesToRescore, computeScore.node, dag = dag, 
+                           dat = dat, penalty = penalty)
     node.scores[nodesToRescore] <- newScores
     
-    moves$score[moves$recompute] <- parApply(cl, moveMat[moves$recompute], 1,
+    moves$score[moves$recompute] <- parApply(cl, moveMat[moves$recompute,], 1,
                                              evaluateScore, 
                                              dat = dat, 
                                              node.scores = node.scores, 
@@ -240,13 +236,15 @@ evaluateScore <- function(move, dat, node.scores, dag, penalty){
   
   #Compute difference in score from changing parent set of to-node
   count.to <- computeCount.node(node.to, dag.postMove, dat = dat)
-  newScore.to <- computeScore.node(count.to, penalty, no.nodes = nnodes(dag))
+  newScore.to <- computeScore.node(node.to, dag = dag, dat = dat, 
+                                   penalty = penalty)
   scoreDiff <- newScore.to - node.scores[[node.to]]
   
   #If the move is a reversal, also take into account change at from-node
   if(moveType == "reverse"){
     count.from <- computeCount.node(node.from, dag.postMove, dat = dat)
-    newScore.from <- computeScore.node(count.from, penalty, no.nodes = nnodes(dag))
+    newScore.from <- computeScore.node(node.from, dag = dag, dat = dat, 
+                                       penalty = penalty)
     scoreDiff <- scoreDiff + newScore.from - node.scores[node.from]
   }
   
@@ -331,8 +329,7 @@ checkIfAllowed <- function(move, dag, tabuList = list(), dat = NULL){
   #Check that data is available for all of the configurations of the proposed
   #parental set. Otherwise, the likelikhood is undefined  
   if(!is.null(dat)){
-    proposedCount <- computeCount.node(node.to, proposedDag, dat)
-    proposedScore <- computeNAL.node(proposedCount)
+    proposedScore <- computeNAL.discrete(node.to, proposedDag, dat)$logl
     if(is.nan(proposedScore)){return(FALSE)}
   }
   

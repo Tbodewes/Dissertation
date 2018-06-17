@@ -4,37 +4,38 @@ library(Rgraphviz)
 library(magrittr)
 library(profvis)
 
-df <- learning.test
-dag <- hc(df)
+#' **Test scoring function for discrete data**
+#' Learn an appropriate dag from discrete test dataset
+dag <- hc(learning.test)
 
-#Test by comparing to inbuilt function in complete data case
-computeNAL(dag, df)
-logLik(dag, df)/5000
+#' Test by comparing to inbuilt function in complete data case
+computeNAL(dag, learning.test)
+logLik(dag, learning.test)/nrow(learning.test)
 
 #Introduce missing values
-n <- dim(df)[1]
-p <- dim(df)[2]
+n <- dim(learning.test)[1]
+p <- dim(learning.test)[2]
 prob.missing <- 0.2
 miss <- as.data.frame(matrix(rbinom(n*p, 1, prob.missing), nrow = n, ncol = p))
-df.miss <- df
-df.miss[miss == 1] <- NA
+dat.miss <- learning.test
+dat.miss[miss == 1] <- NA
 
 #Verify that function works with missing values, while logLik does not
-debug(computeNAL)
-computeNAL(dag, df.miss)
-try(logLik(dag, df.miss))
+computeNAL(dag, dat.miss)
+try(logLik(dag, dat.miss))
 
 #computeNAL works well and gives a good approximation to the average log-likelihood
 #found using the full dataset if prob.missing is not too large. If prob.missing
 #is close to 1, there will be nodes and parent configurations such that there are
 #no valid observations. In this case the log-likelihood is NaN (a warning is given)
 
-#In full data case, computed scores agree with inbuilt functions
-computeScore(dag, df, bic = TRUE)
-BIC(dag, df)/dim(df)[1]
+#In full data case, computed scores agree with inbuilt functions for discrete
+#dataset
+computeScore(dag, learning.test, penalty = "bic")
+BIC(dag, learning.test)/nrow(learning.test)
 
-computeScore(dag, df, aic = TRUE)
-AIC(dag, df)/dim(df)[1]
+computeScore(dag, learning.test, penalty = "aic")
+AIC(dag, learning.test)/nrow(learning.test)
 
 
 #### Tests Balov alarm experiment ####
@@ -118,7 +119,11 @@ findBestAllowedMove(moves, testGraph, tabuList) #Should be C to A, as A to B
 
 #Debugging shows that graphs in tabu phase are not Markov equivalent
 
+#' Test whether sequential and parallel versions execute without error and
+#' give the same DAG
 fit.dag(learning.test, "bic", parallel = FALSE)
+fit.dag(learning.test, "bic", parallel = TRUE)
+
 
 alarm.custom <- fit.dag(alarm, "bic", parallel = TRUE, 
                       tabuSearch = FALSE)$dag

@@ -3,8 +3,8 @@ library(bnlearn)
 #Computes contingency table for a discrete node and its parents in a given DAG
 computeCount.node <- function(node, dag, dat){
   currentParents <- parents(dag, node)
-  familyData <- na.omit(dat[,c(node, currentParents)])
-  counts <- table(familyData)
+  familydata <- na.omit(dat[,c(node, currentParents)])
+  counts <- table(familydata)
   return(counts)
 }
 
@@ -49,20 +49,34 @@ computeCounts <- function(dag, dat, cl = NULL){
 computeNAL <- function(dag, dat){
   node.names <- names(dat)
   logl.nodes <- sapply(node.names, function(node)
-    {computeNAL.discrete(node, dag, dat)$logl})
+  {computeNAL.discrete(node, dag, dat)$logl})
   logl <- sum(logl.nodes)
   
   return(logl)
 }
 
 
+#' Determines which parents of a given node are continuous RV
+#'
+#' @param node string giving node whose parents should be inspected
+#' @param dag DAG determining parental set
+#' @param dat dataset informing whether a variable is numeric or a factor
+#'
+#' @return logical vector with an entry for each parent. TRUE if parent is
+#'   numeric in dat, FALSE if parent is a factor
+#' @export
+#'
+#' @examples
+parentsContinuous <- function(node, dag, dat){
+  return(sapply(parents(dag, node), function(parent){
+    is.numeric(dat[[parent]])}))
+}
+
 computeNAL.discrete <- function(node, dag, dat){
   
   #Check that none of the discrete node's parents are continuous. If any parent
   #is continuous, return -Inf to indicate that the DAG is invalid
-  parentsContinuous <- sapply(parents(dag, node), function(parent){
-    is.numeric(dat[[parent]])})
-  if(any(parentsContinuous)){return(-Inf)}
+  if(any(parentsContinuous(node, dag, dat))){return(-Inf)}
   
   counts <- computeCount.node(node, dag, dat)
   
@@ -94,6 +108,7 @@ computeNAL.discrete <- function(node, dag, dat){
                 " for some configuration of parents\n", 
                 encodeString(node.names[-1], quote = " ") ,
                 ": result is NaN"))
+      return(NaN)
     }
     mle.conditional <- sweep(counts, parentIndices, parent.counts, "/")
     
@@ -123,20 +138,55 @@ computeNAL.discrete <- function(node, dag, dat){
   return(list(logl = logl, df = no.params))
 }
 
-#TODO: replace computeScore.node by new version wherever it appears
+
+computeNAL.gaussian <- function(node, dag, dat){
+  #Obtain dataframe with only node and parents, omit rows with missing entries
+  currentParents <- parents(dag, node)
+  familyData <- na.omit(dat[,c(node, currentParents)])
+ 
+  #Deal with case of no parents by filling in MLEs in normal likelihood
+  if(length(currentParents) < 1){
+    n <- length(familyData)
+    logl <- sum(dnorm(familyData, mean(familyData), sd(familyData), log = TRUE))
+    return(list(logl = logl/n, df = 2))
+  }
+  
+  n <- nrow(familyData)
+  
+  #Determine which parents are continuous and which are discrete
+  whichParentsContinuous <- parentsContinuous(node, dag, dat)
+  continuousParents <- currentParents[whichParentsContinuous]
+  discreteParents <- currentParents[!whichParentsContinuous]
+  
+  #Regress node on continuous parents
+  f <- as.formula(paste(node, "~", paste(continuousParents, collapse = " + ")))
+  
+  #If there are discrete parents, do separate regression for each configuration
+  if(length(discreteParents) > 0){
+    dataConfigs <- split(familyData, familyData[,discreteParents])
+    
+    #Log-likelihood is sum of log-likelihoods for each observation. Hence it is
+    #already proportional to the counts for each configuration
+    weighted.logl <- sum(sapply(dataConfigs, function(dataConfig){
+      return(as.vector(logLik(lm(f, data = dataConfig))))
+    }))
+    no.params <- length(dataConfigs)*(length(continuousParents)+2)
+  } else{
+    weighted.logl <- as.vector(logLik(lm(f, data = familyData)))
+    no.params <- length(continuousParents) + 2
+  }
+  
+  return(list(logl = weighted.logl/n, df = no.params))
+}
+
 computeScore.node <- function(node, dag, dat, penalty){
   
   if(is.factor(dat[[node]])){
-    #TODO: adapt computeNAL.discrete:
-    # - new signature, must compute count internally
-    # - return df 
-    # - must check that no parent is continuous (return -Inf logl and 0 df)
     NAL <- computeNAL.discrete(node, dag, dat)
   }
   else{
     NAL <- computeNAL.gaussian(node, dag, dat)
   }
-  
   logl <- NAL$logl
   no.params <- NAL$df
   
@@ -156,7 +206,7 @@ computeScore.node <- function(node, dag, dat, penalty){
   if(bic){penaltyFactor <- 0.5*log(n)/n}
   else if (aic){penaltyFactor <- 1/n}
   else {penaltyFactor <- 1/no.nodes * n^(-alpha)}
-  
+
   nodeScore <-  logl - penaltyFactor*no.params
   return(nodeScore)
 }
@@ -167,6 +217,7 @@ computeScore <- function(dag, dat, penalty, cl = NULL){
   node.names <- names(dat)
   score.nodes <- sapply(node.names, computeScore.node, dag = dag, dat = dat,
                         penalty = penalty)
+  browser()
   score <- mean(score.nodes, na.rm = TRUE)*nnodes(dag)
   
   return(score)

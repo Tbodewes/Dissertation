@@ -29,68 +29,7 @@ generateData <- function(dag, n, no.missing){
   return(df.miss)
 }
 
-#TODO: Update and refactor this function, then put it in Fit DAG.R for 
-#later use. Extend to CGNs (restricted parental set). Implement tests
-fit.dag.ordered <- function(node.names, max.parents, dat, penalty){
-  
-  dag.fitted <- empty.graph(node.names)
-  
-  no.nodes <- length(node.names)
-  
-  assign("dat", dat, envir=globalenv())
-  
-  cl <- makeCluster(detectCores() - 1)
-  on.exit(stopCluster(cl))
-  
-  invisible(clusterEvalQ(cl, library(bnlearn)))
-  
-  functionsToLoad <- c("computeScore.node", "computeNAL.node")
-  invisible(clusterExport(cl, c(functionsToLoad)))
-  invisible(clusterExport(cl, "dat", envir = environment()))
-  
-  wrapperScore <- function(parents, node, penalty, no.nodes){
-    
-    score.node <- computeScore.node(counts, penalty, no.nodes)
-    
-    #If any parent configuration has no occurences, we deem it to be 
-    #too complex to learn from our dataset, and give it -Inf score
-    if(is.na(score.node)){score.node <- -Inf}
-    
-    return(score.node)
-  }
-  
-  for(i in 2:no.nodes){
-    node <- node.names[i]
-    possible.parents <- lapply(0:min(max.parents, i-1), 
-                                  combn, x = node.names[1:(i-1)],
-                               simplify = FALSE) %>% 
-      unlist(., recursive = FALSE)
-    
-    #Only worth incurring paralellization overhead if set of possible
-    #parents is large enough 
-    if(length(possible.parents) > 100){
-    scores <- parSapply(cl, possible.parents, 
-                        FUN = wrapperScore,
-                        node = node,
-                        penalty = penalty,
-                        no.nodes = length(node.names))
-    }
-    else{
-      scores <- sapply(possible.parents,
-                       FUN = evaluateScore,
-                       node = node,
-                       penalty = penalty,
-                       no.nodes = length(node.names))
-    }
-    
-    bestParents <- possible.parents[[which.max(scores)]]
-    
-    if(length(bestParents) > 0)
-      {parents(dag.fitted, node) <- bestParents}
-  }
-  
-  return(dag.fitted)
-}
+
 
 
 computeF <- function(dag.true, dag.fitted){

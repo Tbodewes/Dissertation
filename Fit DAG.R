@@ -650,3 +650,64 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
   
   return(list(dag = dag.best, queries = no.queries))
 }
+
+
+fit.dag.ordered <- function(node.names, max.parents, dat, penalty, 
+                            parallel = TRUE){
+  
+  dag.fitted <- empty.graph(node.names)
+  
+  no.nodes <- length(node.names)
+  
+  assign("dat", dat, envir=globalenv())
+  
+  cl <- initializeCluster(dat)
+  on.exit(stopCluster(cl))
+  
+  wrapperScore <- function(parents.node, node, penalty, no.nodes){
+    
+    dag <- empty.graph(c(node, parents.node))
+    if(length(parents.node) > 0) {parents(dag, node) <- parents.node}
+    
+    score.node <- computeScore.node(node, dag, dat, penalty, 
+                                    no.nodes = no.nodes)
+    
+    #If any parent configuration has no occurences, we deem it to be 
+    #too complex to learn from our dataset, and give it -Inf score
+    if(is.na(score.node)){score.node <- -Inf}
+    
+    return(score.node)
+  }
+  
+  for(i in 2:no.nodes){
+    node <- node.names[i]
+    possible.parents <- lapply(0:min(max.parents, i-1), 
+                               combn, x = node.names[1:(i-1)],
+                               simplify = FALSE) %>% 
+      unlist(., recursive = FALSE)
+    
+    #Only worth incurring paralellization overhead if set of possible
+    #parents is large enough 
+    if(parallel && length(possible.parents) > 100){
+      scores <- parSapply(cl, possible.parents, 
+                          FUN = wrapperScore,
+                          node = node,
+                          penalty = penalty,
+                          no.nodes = length(node.names))
+    }
+    else{
+      scores <- sapply(possible.parents,
+                       FUN = wrapperScore,
+                       node = node,
+                       penalty = penalty,
+                       no.nodes = length(node.names))
+    }
+    
+    bestParents <- possible.parents[[which.max(scores)]]
+    
+    if(length(bestParents) > 0)
+    {parents(dag.fitted, node) <- bestParents}
+  }
+  
+  return(dag.fitted)
+}

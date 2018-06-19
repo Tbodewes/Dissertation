@@ -155,7 +155,7 @@ computeNAL.discrete <- function(node, dag, dat){
                 " for some configuration of parents\n", 
                 encodeString(node.names[-1], quote = " ") ,
                 ": result is NaN"))
-      return(list(logl = NaN))
+      return(list(logl = NaN, df = 0))
     }
     mle.conditional <- sweep(counts, parentIndices, parent.counts, "/")
     
@@ -267,7 +267,7 @@ computeNAL.gaussian <- function(node, dag, dat){
 #' @export
 #'
 #' @examples
-computeScore.node <- function(node, dag, dat, penalty){
+computeScore.node <- function(node, dag, dat, penalty, no.nodes = NULL){
   
   NAL <- computeNAL.node(node, dag, dat)
   logl <- NAL$logl
@@ -283,7 +283,7 @@ computeScore.node <- function(node, dag, dat, penalty){
   else if(!is.na(is.numeric(penalty))){alpha = as.numeric(penalty)}
   else {stop("Penalty must be 'bic', 'aic' or a number")}
   
-  no.nodes <- nnodes(dag)
+  if(is.null(no.nodes)){no.nodes <- nnodes(dag)}
   n <- nrow(dat)
   
   if(bic){penaltyFactor <- 0.5*log(n)/n}

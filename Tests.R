@@ -19,7 +19,7 @@ miss <- as.data.frame(matrix(rbinom(n*p, 1, prob.missing), nrow = n, ncol = p))
 discrete.miss <- dat.discrete
 discrete.miss[miss == 1] <- NA
 
-#Verify that function works with missing values, while logLik does not
+#' Verify that function works with missing values, while logLik does not
 computeNAL(dag.discrete, discrete.miss)
 try(logLik(dag.discrete, discrete.miss))
 #' computeNAL works well and gives a good approximation to the average
@@ -57,7 +57,7 @@ miss <- as.data.frame(matrix(rbinom(n*p, 1, prob.missing), nrow = n, ncol = p))
 gauss.miss <- dat.gauss
 gauss.miss[miss == 1] <- NA
 
-#Verify that function works with missing values, while logLik does not
+#' Verify that function works with missing values, while logLik does not
 computeNAL(dag.gauss, gauss.miss)
 try(logLik(dag.gauss, gauss.miss))
 #' NAL gives approximately same likelihood as before while logLik fails 
@@ -108,6 +108,61 @@ AIC(dag.mix, dat.mix)/nrow(dat.mix)
 mix.fitted <- fit.dag(dat.mix, "bic", parallel = FALSE)
 graphviz.compare(cpdag(mix.fitted$dag), cpdag(dag.mix))
 
+#' ** Tests dag fitting for known node order and restricted parental set size **
+
+#' Ordered fitting algorithm finds precisely the right DAG in small case
+nodes.ordered <- node.ordering(dag.mix)
+order.fitted <- fit.dag.ordered(nodes.ordered, max.parents = 4, dat.mix, "bic")
+graphviz.compare(cpdag(order.fitted), cpdag(dag.mix))
+
+dat.alarm <- alarm
+dag.alarm <- model2network(paste("[HIST|LVF][CVP|LVV][PCWP|LVV][HYP][LVV|HYP:LVF]",
+                                 "[LVF][STKV|HYP:LVF][ERLO][HRBP|ERLO:HR][HREK|ERCA:HR][ERCA]",
+                                 "[HRSA|ERCA:HR][ANES][APL][TPR|APL][ECO2|ACO2:VLNG][KINK]",
+                                 "[MINV|INT:VLNG][FIO2][PVS|FIO2:VALV][SAO2|PVS:SHNT][PAP|PMB][PMB]",
+                                 "[SHNT|INT:PMB][INT][PRSS|INT:KINK:VTUB][DISC][MVS][VMCH|MVS]",
+                                 "[VTUB|DISC:VMCH][VLNG|INT:KINK:VTUB][VALV|INT:VLNG][ACO2|VALV]",
+                                 "[CCHL|ACO2:ANES:SAO2:TPR][HR|CCHL][CO|HR:STKV][BP|CO:TPR]", sep = ""))
+
+#' Determine maximum number of parents
+max(sapply(nodes(dag.alarm), function(node, dag)
+  {length(parents(dag, node))}, dag = dag.alarm))
+#' Max parents in alarm is 4, but this is computationally infeasible. Use 3
+
+nodes.ordered.alarm <- node.ordering(dag.alarm) 
+alarm.order.fitted <- fit.dag.ordered(nodes.ordered.alarm, max.parents = 3,
+                                      dat.alarm, "bic")
+graphviz.compare(cpdag(alarm.order.fitted), cpdag(dag.alarm))
+#' Does not give precisely the right graph, fitted graph is missing some edges
+#' (and has one false positive)
+#' 
+#' All wrong parental sets are due to no data being available for some
+#' configuration of the true parental set. Algorithm automatically discards
+#' these options, despite them being possible in practice
+computeScore.node("CCHL", dag.alarm, dat.alarm, "bic")
+computeScore.node("ECO2", dag.alarm, dat.alarm, "bic")
+computeScore.node("VLNG", dag.alarm, dat.alarm, "bic")
+
+#' Generate data with bayesian parameter fitting. MLEs cannot be used because
+#' they assign zero probability to some necessary configurations. Need
+#' substantial imaginary sample size to ensure that each configuration is
+#' possible, even if some are not present in the data
+dat.alarm.synth <- rbn(dag.alarm, n = 40000, data = dat.alarm,
+                       fit = "bayes", iss = 1000)
+
+#' Check that previously problematic configurations are now possible
+computeScore.node("CCHL", dag.alarm, dat.alarm.synth, "bic")
+computeScore.node("ECO2", dag.alarm, dat.alarm.synth, "bic")
+computeScore.node("VLNG", dag.alarm, dat.alarm.synth, "bic")
+
+alarm.order.synth <- fit.dag.ordered(nodes.ordered.alarm, max.parents = 3,
+                                      dat.alarm.synth, "bic")
+graphviz.compare(cpdag(alarm.order.synth), cpdag(dag.alarm))
+#' Now only one edge is missing, due to number of parents being restricted at
+#' 3 instead of at 4. Interestingly, simpler configuration has higher score
+#' on current dataset.
+computeScore.node("CCHL", dag.alarm, dat.alarm.synth, "bic")
+computeScore.node("CCHL", alarm.order.synth, dat.alarm.synth, "bic")
 
 #### Tests Balov alarm experiment ####
 

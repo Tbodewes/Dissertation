@@ -322,7 +322,7 @@ checkIfAllowed <- function(move, dag, tabuList = list(), dat = NULL){
   
   #Check that the proposed graph is acyclic
   if(class(proposedDag) == "try-error"){return(FALSE)}
-
+  
   #Check that data is available for all of the configurations of the proposed
   #parental set. Otherwise, the likelikhood is undefined  
   if(!is.null(dat)){
@@ -352,7 +352,7 @@ findBestAllowedMove <- function(moves, dag, tabuList = list()){
   
   #Order score differences from largest to smallest
   scoreOrder <- order(moves$score, decreasing = TRUE)
-
+  
   #Iterate from largest to smallest score and return first allowed move
   for(moveIndex in scoreOrder)
   {
@@ -621,7 +621,7 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
       #terminate current phase of search
       else{converged <- TRUE}
     }
-
+    
     score.current <- computeScore(dag.current, dat, penalty, cl = cl)
     if(score.current > score.best){
       dag.best <- dag.current
@@ -630,7 +630,7 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
       #If a better graph is found, reset number of restarts
       restart <- 0
     }
-
+    
     #Perturb graph
     perturbed <- perturbGraph(randomMoves,
                               dag = dag.best,
@@ -652,19 +652,33 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
 }
 
 
+#' Fits DAG with known node order and restricted size of parental sets
+#'
+#' @param node.names character vector of ordered node names
+#' @param max.parents maximum number of parents per node
+#' @inheritParams fit.dag
+#'
+#' @return Maximum scoring DAG for given restrictions on node order and parental
+#'   sets
+#'
+#' @export
+#'
+#' @examples
 fit.dag.ordered <- function(node.names, max.parents, dat, penalty, 
                             parallel = TRUE){
   
+  #Initialize DAG and cluster
   dag.fitted <- empty.graph(node.names)
-  
   no.nodes <- length(node.names)
   
-  assign("dat", dat, envir=globalenv())
+  if(parallel){
+    cl <- initializeCluster(dat)
+    on.exit(stopCluster(cl))
+  }
   
-  cl <- initializeCluster(dat)
-  on.exit(stopCluster(cl))
-  
-  wrapperScore <- function(parents.node, node, penalty, no.nodes){
+  #Computes score for given parent configuration of a node. Returns -Inf if
+  #there is no data for some parental configuration
+  wrapperScore <- function(parents.node, node, dat, penalty, no.nodes){
     
     dag <- empty.graph(c(node, parents.node))
     if(length(parents.node) > 0) {parents(dag, node) <- parents.node}
@@ -679,19 +693,25 @@ fit.dag.ordered <- function(node.names, max.parents, dat, penalty,
     return(score.node)
   }
   
+  #Determine optimal parental sets for each node separately (possible due to
+  #known node ordering, which guarantees acyclicity when only nodes earlier in
+  #the ordering are considered as candidate parents)
   for(i in 2:no.nodes){
+    #Generate list of potential parental sets
     node <- node.names[i]
     possible.parents <- lapply(0:min(max.parents, i-1), 
                                combn, x = node.names[1:(i-1)],
                                simplify = FALSE) %>% 
       unlist(., recursive = FALSE)
     
+    #Compute score for each possible parental configuration.
     #Only worth incurring paralellization overhead if set of possible
     #parents is large enough 
     if(parallel && length(possible.parents) > 100){
       scores <- parSapply(cl, possible.parents, 
                           FUN = wrapperScore,
                           node = node,
+                          dat = dat,
                           penalty = penalty,
                           no.nodes = length(node.names))
     }
@@ -699,6 +719,7 @@ fit.dag.ordered <- function(node.names, max.parents, dat, penalty,
       scores <- sapply(possible.parents,
                        FUN = wrapperScore,
                        node = node,
+                       dat = dat,
                        penalty = penalty,
                        no.nodes = length(node.names))
     }

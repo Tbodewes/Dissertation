@@ -149,15 +149,21 @@ computeNAL.discrete <- function(node, dag, dat){
     parent.counts <-  colSums(counts)
     
     #Give a warning if there are no observations for some parental configuration
-    if(any(parent.counts < 1)){
-      node.names <- names(dimnames(counts))
-      warning(c("No valid observations for ", node.names[1] , 
-                " for some configuration of parents\n", 
-                encodeString(node.names[-1], quote = " ") ,
-                ": result is NaN"))
-      return(list(logl = NaN, df = 0))
-    }
+    # if(any(parent.counts < 1)){
+    #   node.names <- names(dimnames(counts))
+    #   warning(c("No valid observations for ", node.names[1] , 
+    #             " for some configuration of parents\n", 
+    #             encodeString(node.names[-1], quote = " ") ,
+    #             ": result is NaN"))
+    #   return(list(logl = NaN, df = 0))
+    # }
+    
+    #Compute MLEs
     mle.conditional <- sweep(counts, parentIndices, parent.counts, "/")
+    
+    #If there were no observations for some parental configuration, replace
+    #these by a uniform distribution (maximum entropy, lowest possible score)
+    mle.conditional[!is.finite(mle.conditional)] <- 1/dim(counts)[1]
     
     #Replace underflown MLEs by a small positive number for numerical stability
     mle.conditional[mle.conditional < 1E-10] <- 1E-10

@@ -40,6 +40,31 @@ AIC(dag.discrete, dat.discrete)/nrow(dat.discrete)
 discrete.fitted <- fit.dag(dat.discrete, "bic", parallel = FALSE)
 graphviz.compare(cpdag(discrete.fitted$dag), cpdag(dag.discrete))
 
+#Load alarm data and true DAG
+dat.alarm <- alarm
+dag.alarm <- model2network(paste("[HIST|LVF][CVP|LVV][PCWP|LVV][HYP][LVV|HYP:LVF]",
+                                 "[LVF][STKV|HYP:LVF][ERLO][HRBP|ERLO:HR][HREK|ERCA:HR][ERCA]",
+                                 "[HRSA|ERCA:HR][ANES][APL][TPR|APL][ECO2|ACO2:VLNG][KINK]",
+                                 "[MINV|INT:VLNG][FIO2][PVS|FIO2:VALV][SAO2|PVS:SHNT][PAP|PMB][PMB]",
+                                 "[SHNT|INT:PMB][INT][PRSS|INT:KINK:VTUB][DISC][MVS][VMCH|MVS]",
+                                 "[VTUB|DISC:VMCH][VLNG|INT:KINK:VTUB][VALV|INT:VLNG][ACO2|VALV]",
+                                 "[CCHL|ACO2:ANES:SAO2:TPR][HR|CCHL][CO|HR:STKV][BP|CO:TPR]", sep = ""))
+
+#Fit alarm DAG and check that parallel implementation works and is faster
+system.time(alarm.fitted.ser <- fit.dag(dat.alarm, "bic", parallel = FALSE))
+system.time(alarm.fitted.par <- fit.dag(dat.alarm, "bic", parallel = TRUE))
+graphviz.compare(alarm.fitted.ser$dag, alarm.fitted.par$dag)
+#Two approaches do not learn the same graph, which is surprising.
+#Parallelization should not matter for this
+
+alarm.fitted <- fit.dag(dat.alarm, "bic", restarts = 3, parallel = FALSE)
+graphviz.compare(cpdag(alarm.fitted$dag), cpdag(dag.alarm))
+
+alarm.fitted.inbuilt <- tabu(dat.alarm)
+
+shd(alarm.fitted$dag, dag.alarm)
+shd(alarm.fitted.inbuilt, dag.alarm)
+
 
 #' ** Test scoring function and local search for Gaussian data **
 dat.gauss <- gaussian.test
@@ -115,14 +140,6 @@ nodes.ordered <- node.ordering(dag.mix)
 order.fitted <- fit.dag.ordered(nodes.ordered, max.parents = 4, dat.mix, "bic")
 graphviz.compare(cpdag(order.fitted), cpdag(dag.mix))
 
-dat.alarm <- alarm
-dag.alarm <- model2network(paste("[HIST|LVF][CVP|LVV][PCWP|LVV][HYP][LVV|HYP:LVF]",
-                                 "[LVF][STKV|HYP:LVF][ERLO][HRBP|ERLO:HR][HREK|ERCA:HR][ERCA]",
-                                 "[HRSA|ERCA:HR][ANES][APL][TPR|APL][ECO2|ACO2:VLNG][KINK]",
-                                 "[MINV|INT:VLNG][FIO2][PVS|FIO2:VALV][SAO2|PVS:SHNT][PAP|PMB][PMB]",
-                                 "[SHNT|INT:PMB][INT][PRSS|INT:KINK:VTUB][DISC][MVS][VMCH|MVS]",
-                                 "[VTUB|DISC:VMCH][VLNG|INT:KINK:VTUB][VALV|INT:VLNG][ACO2|VALV]",
-                                 "[CCHL|ACO2:ANES:SAO2:TPR][HR|CCHL][CO|HR:STKV][BP|CO:TPR]", sep = ""))
 
 #' Determine maximum number of parents
 max(sapply(nodes(dag.alarm), function(node, dag)
@@ -163,6 +180,19 @@ graphviz.compare(cpdag(alarm.order.synth), cpdag(dag.alarm))
 #' on current dataset.
 computeScore.node("CCHL", dag.alarm, dat.alarm.synth, "bic")
 computeScore.node("CCHL", alarm.order.synth, dat.alarm.synth, "bic")
+
+#' ** Test white- and blacklisting **
+
+graphviz.plot(dag.discrete)
+blacklist <- data.frame(matrix(c("A", "B"), 1))
+whitelist <- data.frame(matrix(c("A", "E"), 1))
+
+discrete.fitted.restricted <- fit.dag(dat.discrete, "bic", parallel = FALSE,
+                                      blacklist = blacklist, 
+                                      whitelist = whitelist)
+graphviz.compare(cpdag(discrete.fitted$dag), cpdag(dag.discrete))
+#' TODO: doesn't work yet!
+
 
 #### Tests Balov alarm experiment ####
 

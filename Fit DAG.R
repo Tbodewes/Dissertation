@@ -22,10 +22,25 @@ source("Scoring.R")
 #' @export
 #'
 #' @examples
-initializeMoves <- function(node.names){
+initializeMoves <- function(node.names, blacklist, whitelist){
   #Get all pairs of distinct nodes
   moves <- expand.grid(from = node.names, to = node.names, stringsAsFactors = F)
   moves <- with(moves, moves[from != to,])
+  
+  #Remove all blacklisted arcs from consideration
+  if(!is.null(blacklist)){
+    if(!is.null(whitelist)){movesToRemove <- rbind(blacklist, whitelist)}
+    else {movesToRemove <- blacklist}
+  }
+  else if(!is.null(whitelist)){movesToRemove <- whitelist}
+  else{movesToRemove <- NULL}
+  
+  if(!is.null(movesToRemove))
+  {
+    require(prodlim)
+    names(movesToRemove) <-  c("from", "to")
+    moves <- moves[-row.match(data.frame(movesToRemove), moves),]
+  }
   
   #Indicates that none of the scores for the moves has been computed, hence
   #all should be evaluated before proceeding. If a score is not changed by
@@ -145,10 +160,10 @@ updateHC <- function(move, dag, dat, moves, node.scores, penalty,
 #'
 #' @examples
 recompute <- function(dag, dat, penalty, moves = NULL, node.scores = NULL, 
-                      nodesToRescore = nodes(dag), cl){
+                      nodesToRescore = nodes(dag), cl, blacklist, whitelist){
   #If moves and node scores have not been provided, initialize them
   if(is.null(moves)){
-    moves <- initializeMoves(nodes(dag))
+    moves <- initializeMoves(nodes(dag), blacklist, whitelist)
   }
   if(is.null(node.scores)){
     node.scores <- vector("numeric", length(nodes(dag)))
@@ -548,9 +563,18 @@ perturbGraph <- function(randomMoves, dag, dat, moves, penalty, cl){
 #' fit.dag(learning.test, penalty = "bic")
 fit.dag <- function(dat, penalty, parallel = TRUE, 
                     tabuSteps = 10, tabuLength = tabuSteps,
-                    restarts = 0, randomMoves = ncol(dat)){
-  #Initialize current graph to empty graph
+                    restarts = 0, randomMoves = ncol(dat),
+                    blacklist = NULL, whitelist = NULL){
+  #Initialize current graph to empty graph + whitelisted edges
   dag.current <- empty.graph(names(dat))
+  if(!is.null(whitelist)){
+    for(i in 1:nrow(whitelist))
+    {
+      dag.current <- set.arc(dag.current, 
+                             as.character(whitelist[i,1]), 
+                             as.character(whitelist[i,2]))
+    }
+  }
   
   #Initialize cluster and load relevant data, or set cluster to null
   if(parallel){
@@ -561,7 +585,8 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
   
   #Initialize dataframe of moves and compute current score per node and change
   #in score from each move
-  initialization <- recompute(dag.current, dat, penalty, cl = cl)
+  initialization <- recompute(dag.current, dat, penalty, cl = cl, 
+                              blacklist = blacklist, whitelist = whitelist)
   moves <- initialization$moves
   node.scores <- initialization$nodeScores
   no.queries <- initialization$queries

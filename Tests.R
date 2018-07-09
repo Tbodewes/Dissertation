@@ -38,11 +38,12 @@ AIC(dag.discrete, dat.discrete)/nrow(dat.discrete)
 
 #' Local search gives correct DAG up to Markov equivalence in discrete case
 discrete.fitted <- fit.dag(dat.discrete, "bic", parallel = FALSE)
-graphviz.compare(cpdag(discrete.fitted$dag), cpdag(dag.discrete))
+graphviz.compare(cpdag(discrete.fitted), cpdag(dag.discrete))
 
 #' Check that number of comparisons is similar to inbuilt function
-discrete.fitted$queries
-hc(dat.discrete)$learning$ntests
+discrete.fitted$learning$ntests
+tabu(dat.discrete)$learning$ntests
+#' Number of comparisons is 30% larger
 
 
 #Load alarm data and true DAG
@@ -63,28 +64,28 @@ system.time(alarm.fitted.par <- fit.dag(dat.alarm, "bic", parallel = TRUE))
 system.time(alarm.fitted.inbuilt <- tabu(dat.alarm))
 
 #' Check that number of comparisons is similar to inbuilt function
-alarm.fitted.ser1$queries
-alarm.fitted.ser2$queries
-alarm.fitted.par$queries
+alarm.fitted.ser1$learning$ntests
+alarm.fitted.ser2$learning$ntests
+alarm.fitted.par$learning$ntests
 alarm.fitted.inbuilt$learning$ntests
-graphviz.compare(alarm.fitted.ser1$dag, alarm.fitted.par$dag)
+graphviz.compare(alarm.fitted.ser1, alarm.fitted.par)
 #' Make similar number of comparisons (3759 vs 4039), though slight difference
 #' will already distort computational experiments. Number of queries stays
 #' the same between runs. Parallel implementation also finds the same number
 #' of queries. Finally, serial and parallel implementation learn same graph
 
-shd(alarm.fitted.ser1$dag, dag.alarm)
+shd(alarm.fitted.ser1, dag.alarm)
 shd(alarm.fitted.inbuilt, dag.alarm)
 #' Inbuilt method also gives higher SHD. Need to correct these two for valid 
 #' comparison with structural EM, or write custom implementation of structural
 #' EM
 
 alarm.fitted <- fit.dag(dat.alarm, "bic", restarts = 3, parallel = FALSE)
-graphviz.compare(cpdag(alarm.fitted$dag), cpdag(dag.alarm))
+graphviz.compare(cpdag(alarm.fitted), cpdag(dag.alarm))
 
 
 
-shd(alarm.fitted$dag, dag.alarm)
+shd(alarm.fitted, dag.alarm)
 shd(alarm.fitted.inbuilt, dag.alarm)
 
 
@@ -121,7 +122,7 @@ AIC(dag.gauss, dat.gauss)/nrow(dat.gauss)
 
 #' Local search learns correct graph for Gaussian data
 gauss.fitted <- fit.dag(dat.gauss, "bic", parallel = FALSE)
-graphviz.compare(cpdag(gauss.fitted$dag), cpdag(dag.gauss))
+graphviz.compare(cpdag(gauss.fitted), cpdag(dag.gauss))
 
 #' ** Test scoring function and local search for mixed data **
 dat.mix <- clgaussian.test
@@ -153,7 +154,7 @@ AIC(dag.mix, dat.mix)/nrow(dat.mix)
 
 #' Local search learns correct graph for mixed data
 mix.fitted <- fit.dag(dat.mix, "bic", parallel = FALSE)
-graphviz.compare(cpdag(mix.fitted$dag), cpdag(dag.mix))
+graphviz.compare(cpdag(mix.fitted), cpdag(dag.mix))
 
 #' ** Tests dag fitting for known node order and restricted parental set size **
 
@@ -172,36 +173,14 @@ nodes.ordered.alarm <- node.ordering(dag.alarm)
 alarm.order.fitted <- fit.dag.ordered(nodes.ordered.alarm, max.parents = 3,
                                       dat.alarm, "bic")
 graphviz.compare(cpdag(alarm.order.fitted), cpdag(dag.alarm))
-#' Does not give precisely the right graph, fitted graph is missing some edges
-#' (and has one false positive)
-#' 
-#' All wrong parental sets are due to no data being available for some
-#' configuration of the true parental set. Algorithm automatically discards
-#' these options, despite them being possible in practice
+#' Gives almost correct graph (2 FN, 1 FP). Found configurations actually
+#' score higher than the true configurations, should be resolved in larger
+#' datasets.
 computeScore.node("CCHL", dag.alarm, dat.alarm, "bic")
-computeScore.node("ECO2", dag.alarm, dat.alarm, "bic")
-computeScore.node("VLNG", dag.alarm, dat.alarm, "bic")
+computeScore.node("CCHL", alarm.order.fitted, dat.alarm, "bic")
 
-#' Generate data with bayesian parameter fitting. MLEs cannot be used because
-#' they assign zero probability to some necessary configurations. Need
-#' substantial imaginary sample size to ensure that each configuration is
-#' possible, even if some are not present in the data
-dat.alarm.synth <- rbn(dag.alarm, n = 40000, data = dat.alarm,
-                       fit = "bayes", iss = 1000)
-
-#' Check that previously problematic configurations are now possible
-computeScore.node("CCHL", dag.alarm, dat.alarm.synth, "bic")
-computeScore.node("ECO2", dag.alarm, dat.alarm.synth, "bic")
-computeScore.node("VLNG", dag.alarm, dat.alarm.synth, "bic")
-
-alarm.order.synth <- fit.dag.ordered(nodes.ordered.alarm, max.parents = 3,
-                                      dat.alarm.synth, "bic")
-graphviz.compare(cpdag(alarm.order.synth), cpdag(dag.alarm))
-#' Now only one edge is missing, due to number of parents being restricted at
-#' 3 instead of at 4. Interestingly, simpler configuration has higher score
-#' on current dataset.
-computeScore.node("CCHL", dag.alarm, dat.alarm.synth, "bic")
-computeScore.node("CCHL", alarm.order.synth, dat.alarm.synth, "bic")
+computeScore.node("HYP", dag.alarm, dat.alarm, "bic")
+computeScore.node("HYP", alarm.order.fitted, dat.alarm, "bic")
 
 #' ** Test white- and blacklisting **
 
@@ -211,7 +190,7 @@ whitelist <- data.frame(matrix(c("A", "E"), 1))
 discrete.fitted.restricted <- fit.dag(dat.discrete, "bic", parallel = FALSE,
                                       blacklist = blacklist, 
                                       whitelist = whitelist)
-graphviz.compare(discrete.fitted.restricted$dag, dag.discrete)
+graphviz.compare(discrete.fitted.restricted, dag.discrete)
 
 
 #### Tests Balov alarm experiment ####

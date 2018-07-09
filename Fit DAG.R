@@ -562,7 +562,7 @@ perturbGraph <- function(randomMoves, dag, dat, moves, penalty, cl){
 #'
 #' @examples
 #' fit.dag(learning.test, penalty = "bic")
-fit.dag <- function(dat, penalty, parallel = TRUE, 
+fit.dag <- function(dat, penalty, parallel = TRUE, cl = NULL,
                     tabuSteps = 10, tabuLength = tabuSteps,
                     restarts = 0, randomMoves = ncol(dat),
                     blacklist = NULL, whitelist = NULL){
@@ -578,11 +578,10 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
   }
   
   #Initialize cluster and load relevant data, or set cluster to null
-  if(parallel){
+  if(parallel && is.null(cl)){
     cl <- initializeCluster(dat)
     on.exit(stopCluster(cl))
   }
-  else{cl <- NULL}
   
   #Initialize dataframe of moves and compute current score per node and change
   #in score from each move
@@ -676,7 +675,9 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
     
     restart <- restart + 1
   }
-  return(list(dag = dag.best, queries = no.queries))
+  
+  dag.best$learning$ntests <- no.queries
+  return(dag = dag.best)
 }
 
 
@@ -758,5 +759,21 @@ fit.dag.ordered <- function(node.names, max.parents, dat, penalty,
     {parents(dag.fitted, node) <- bestParents}
   }
   
+  #Compute and store number of parental configurations that needed to be
+  #recorded
+  no.queries <- sum(sapply(0:max.parents, function(x){choose(1:no.nodes, x)}))
+  dag.fitted$learning$ntests <- no.queries
   return(dag.fitted)
 }
+
+
+#' Decide later whether to actually implement structural EM
+em.parametric <- function(dat, dag, cl = NULL){
+}
+
+em.structural <- function(dat, penalty, parallel = TRUE, tabuSteps = 10,
+                          tabuLength = tabuSteps, blacklist = NULL, 
+                          whitelist = NULL){
+  
+}
+  

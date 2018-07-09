@@ -193,22 +193,7 @@ discrete.fitted.restricted <- fit.dag(dat.discrete, "bic", parallel = FALSE,
 graphviz.compare(discrete.fitted.restricted, dag.discrete)
 
 
-#### Tests Balov alarm experiment ####
-
-#Number of parent configurations to evaluate
-choose(1:36, 0) + choose(1:36, 1) + choose(1:36, 2) + choose(1:36, 3)
-
-nodes.ordered <- node.ordering(alarm.dag)
-
-system.time(dag.fitted <- fit.dag(nodes.ordered, max.parents = 3,
-                      df = alarm, penalty = "bic"))
-dag.true <- subgraph(alarm.dag, nodes.ordered)
-
-
-graphviz.compare(dag.true, dag.fitted)
-#Gives approximately the correct graph, likely for statistical reasons
-
-####Tests hill climber and tabu search ####
+#' **Test internal functions hill climber and tabu search **
 
 testGraph <- empty.graph(c("A", "B", "C"))
 arcs(testGraph) <- matrix(c("A", "B", "B", "C"), byrow = T, ncol = 2)
@@ -246,16 +231,7 @@ testGraph <- set.arc(testGraph, "A", "B")
 #would need one extra query
 computeNoQueries(moves, testGraph) #Should be 7
 
-dag.custom <- fit.dag(learning.test, "bic", parallel = FALSE, 
-                      tabuSearch = FALSE)$dag
-modelstring(dag.custom)
-dag.inbuilt <- hc(learning.test)
-modelstring(dag.inbuilt)
 
-graphviz.compare(dag.custom, dag.inbuilt)
-graphviz.plot(cpdag(dag.custom))
-graphviz.plot(cpdag(dag.inbuilt))
-#Custom method finds Markov equivalent graph to inbuilt method
 
 #Test findBestAllowedMove
 testGraph <- empty.graph(LETTERS[1:3])
@@ -273,65 +249,6 @@ findBestAllowedMove(moves, testGraph, tabuList) #Should be C to A, as A to B
 #and B to A are not allowed (give graph that is in tabu list)
 
 #Debugging shows that graphs in tabu phase are not Markov equivalent
-
-#' Test whether sequential and parallel versions execute without error and
-#' give the same DAG
-fit.dag(learning.test, "bic", parallel = FALSE)
-fit.dag(learning.test, "bic", parallel = TRUE)
-
-
-alarm.custom <- fit.dag(alarm, "bic", parallel = TRUE, 
-                      tabuSearch = FALSE)$dag
-alarm.inbuilt <- hc(alarm)
-
-modelstring = paste("[HIST|LVF][CVP|LVV][PCWP|LVV][HYP][LVV|HYP:LVF]",
-                    "[LVF][STKV|HYP:LVF][ERLO][HRBP|ERLO:HR][HREK|ERCA:HR][ERCA]",
-                    "[HRSA|ERCA:HR][ANES][APL][TPR|APL][ECO2|ACO2:VLNG][KINK]",
-                    "[MINV|INT:VLNG][FIO2][PVS|FIO2:VALV][SAO2|PVS:SHNT][PAP|PMB][PMB]",
-                    "[SHNT|INT:PMB][INT][PRSS|INT:KINK:VTUB][DISC][MVS][VMCH|MVS]",
-                    "[VTUB|DISC:VMCH][VLNG|INT:KINK:VTUB][VALV|INT:VLNG][ACO2|VALV]",
-                    "[CCHL|ACO2:ANES:SAO2:TPR][HR|CCHL][CO|HR:STKV][BP|CO:TPR]", sep = "")
-alarm.actual = model2network(modelstring)
-
-graphviz.compare(cpdag(alarm.custom), cpdag(alarm.inbuilt))
-graphviz.compare(cpdag(alarm.actual), cpdag(alarm.custom))
-graphviz.compare(cpdag(alarm.actual), cpdag(alarm.inbuilt))
-#All give very different results
-
-
-#Test tabu search and compare running times
-data(alarm)
-system.time(result.custom.tabu <- fit.dag(alarm, "bic", parallel = TRUE))
-alarm.custom.tabu <- result.custom.tabu$dag
-result.custom.tabu$queries
-#About 35 seconds in parallel, 4034 queries (including 10 step tabu search and 
-#3 random restarts)
-
-system.time(alarm.inbuilt.tabu <- tabu(alarm))
-alarm.inbuilt.tabu$learning$ntests
-#About 2 seconds and 3759 queries (same order of magnitude, no random restarts)
-
-graphviz.compare(alarm.inbuilt.tabu, alarm.custom.tabu)
-#Methods give similar graphs, but often disagree on arc direction. Similar
-#number of relative false positives as relative false negatives (though this
-#is somewhat obscured by arcs with different directions also being marked)
-
-graphviz.compare(alarm.actual, alarm.inbuilt.tabu)
-graphviz.compare(alarm.actual, alarm.custom.tabu)
-#Performance appears comparable
-
-shd(alarm.actual, alarm.inbuilt.tabu)
-shd(alarm.actual, alarm.custom.tabu)
-
-computeScore(alarm.inbuilt.tabu, alarm, "bic")
-computeScore(alarm.custom.tabu, alarm, "bic")
-computeScore(alarm.actual, alarm, "bic")
-#Custom method does not give graph much worse than true graph, neither in
-#SHD nor in score. Custom method outperforms inbuilt method in SHD and score.
-#Score for actual DAG and graph from inbuilt search is not properly defined 
-#as some parent configurations have no observations, here we extend the 
-#definition of score to only use nodes for which it is defined
-
 #Question: does longer tabu search and more restarts lead to a better graph?
 #Also, what is the impact of tabu search and restarts on number of queries and
 #computation time?
@@ -360,5 +277,3 @@ profvis(fit.dag(alarm, "bic", parallel = FALSE))
 #followed by 7 of 35 seconds used for initially computing score for each
 #move. Finding best allowed moves accounts for ~2 seconds.
 
-debug(fit.dag)
-fit.dag(learning.test, "bic", parallel = FALSE, restarts = 3)

@@ -40,6 +40,11 @@ AIC(dag.discrete, dat.discrete)/nrow(dat.discrete)
 discrete.fitted <- fit.dag(dat.discrete, "bic", parallel = FALSE)
 graphviz.compare(cpdag(discrete.fitted$dag), cpdag(dag.discrete))
 
+#' Check that number of comparisons is similar to inbuilt function
+discrete.fitted$queries
+hc(dat.discrete)$learning$ntests
+
+
 #Load alarm data and true DAG
 dat.alarm <- alarm
 dag.alarm <- model2network(paste("[HIST|LVF][CVP|LVV][PCWP|LVV][HYP][LVV|HYP:LVF]",
@@ -50,17 +55,34 @@ dag.alarm <- model2network(paste("[HIST|LVF][CVP|LVV][PCWP|LVV][HYP][LVV|HYP:LVF
                                  "[VTUB|DISC:VMCH][VLNG|INT:KINK:VTUB][VALV|INT:VLNG][ACO2|VALV]",
                                  "[CCHL|ACO2:ANES:SAO2:TPR][HR|CCHL][CO|HR:STKV][BP|CO:TPR]", sep = ""))
 
-#Fit alarm DAG and check that parallel implementation works and is faster
-system.time(alarm.fitted.ser <- fit.dag(dat.alarm, "bic", parallel = FALSE))
+#' Fit alarm DAG and check that parallel implementation works and is faster
+#' Also run serial case twice to compare if this gives the same results
+system.time(alarm.fitted.ser1 <- fit.dag(dat.alarm, "bic", parallel = FALSE))
+system.time(alarm.fitted.ser2 <- fit.dag(dat.alarm, "bic", parallel = FALSE))
 system.time(alarm.fitted.par <- fit.dag(dat.alarm, "bic", parallel = TRUE))
-graphviz.compare(alarm.fitted.ser$dag, alarm.fitted.par$dag)
-#Two approaches do not learn the same graph, which is surprising.
-#Parallelization should not matter for this
+system.time(alarm.fitted.inbuilt <- tabu(dat.alarm))
+
+#' Check that number of comparisons is similar to inbuilt function
+alarm.fitted.ser1$queries
+alarm.fitted.ser2$queries
+alarm.fitted.par$queries
+alarm.fitted.inbuilt$learning$ntests
+graphviz.compare(alarm.fitted.ser1$dag, alarm.fitted.par$dag)
+#' Make similar number of comparisons (3759 vs 4039), though slight difference
+#' will already distort computational experiments. Number of queries stays
+#' the same between runs. Parallel implementation also finds the same number
+#' of queries. Finally, serial and parallel implementation learn same graph
+
+shd(alarm.fitted.ser1$dag, dag.alarm)
+shd(alarm.fitted.inbuilt, dag.alarm)
+#' Inbuilt method also gives higher SHD. Need to correct these two for valid 
+#' comparison with structural EM, or write custom implementation of structural
+#' EM
 
 alarm.fitted <- fit.dag(dat.alarm, "bic", restarts = 3, parallel = FALSE)
 graphviz.compare(cpdag(alarm.fitted$dag), cpdag(dag.alarm))
 
-alarm.fitted.inbuilt <- tabu(dat.alarm)
+
 
 shd(alarm.fitted$dag, dag.alarm)
 shd(alarm.fitted.inbuilt, dag.alarm)
@@ -183,15 +205,13 @@ computeScore.node("CCHL", alarm.order.synth, dat.alarm.synth, "bic")
 
 #' ** Test white- and blacklisting **
 
-graphviz.plot(dag.discrete)
+#Graph obeys white- and blacklisting rules
 blacklist <- data.frame(matrix(c("A", "B"), 1))
 whitelist <- data.frame(matrix(c("A", "E"), 1))
-
 discrete.fitted.restricted <- fit.dag(dat.discrete, "bic", parallel = FALSE,
                                       blacklist = blacklist, 
                                       whitelist = whitelist)
-graphviz.compare(cpdag(discrete.fitted$dag), cpdag(dag.discrete))
-#' TODO: doesn't work yet!
+graphviz.compare(discrete.fitted.restricted$dag, dag.discrete)
 
 
 #### Tests Balov alarm experiment ####

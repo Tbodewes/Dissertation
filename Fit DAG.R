@@ -27,19 +27,19 @@ initializeMoves <- function(node.names, blacklist, whitelist){
   moves <- expand.grid(from = node.names, to = node.names, stringsAsFactors = F)
   moves <- with(moves, moves[from != to,])
   
-  #Remove all blacklisted arcs from consideration
+  #Efficiently enforce black- and whitelist by removing moves
+  require(prodlim)
   if(!is.null(blacklist)){
-    if(!is.null(whitelist)){movesToRemove <- rbind(blacklist, whitelist)}
-    else {movesToRemove <- blacklist}
+    #Prevent arc additions
+    names(blacklist) <- c("from", "to")
+    moves <- moves[-row.match(data.frame(blacklist), moves),]
   }
-  else if(!is.null(whitelist)){movesToRemove <- whitelist}
-  else{movesToRemove <- NULL}
-  
-  if(!is.null(movesToRemove))
-  {
-    require(prodlim)
-    names(movesToRemove) <-  c("from", "to")
-    moves <- moves[-row.match(data.frame(movesToRemove), moves),]
+  if(!is.null(whitelist)){
+    #Prevent arc deletions and reversals
+    whitelistReverse <- whitelist[, c(2,1)]
+    names(whitelist) <- c("from", "to")
+    names(whitelistReverse) <- c("from", "to")
+    moves <- moves[-row.match(rbind(whitelist, whitelistReverse), moves),]
   }
   
   #Indicates that none of the scores for the moves has been computed, hence
@@ -202,6 +202,7 @@ recompute <- function(dag, dat, penalty, moves = NULL, node.scores = NULL,
                                              dag = dag, 
                                              penalty = penalty)
   }
+  
   
   no.queries <- length(nodesToRescore) + computeNoQueries(moves, dag)
   
@@ -639,7 +640,6 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
           moves <- tabuResult$moves
           node.scores <- tabuResult$nodeScores
         }
-        
         no.queries <- no.queries + tabuResult$queries
       }
       #If no score-increasing move exists and tabu search is not active,
@@ -656,23 +656,26 @@ fit.dag <- function(dat, penalty, parallel = TRUE,
       restart <- 0
     }
     
-    #Perturb graph
-    perturbed <- perturbGraph(randomMoves,
-                              dag = dag.best,
-                              dat = dat,
-                              moves = moves,
-                              penalty = penalty,
-                              cl = cl)
-    
-    #Retrieve perturbed graph and updated moves and node scores
-    dag.current <- perturbed$dag
-    moves <- perturbed$moves
-    node.scores <- perturbed$nodeScores
-    no.queries <- perturbed$queries
+    #Only go through perturbation procedure if max number of restarts
+    #has not been reached yet.
+    if(restart < restarts){
+      #Perturb graph
+      perturbed <- perturbGraph(randomMoves,
+                                dag = dag.best,
+                                dat = dat,
+                                moves = moves,
+                                penalty = penalty,
+                                cl = cl)
+      
+      #Retrieve perturbed graph and updated moves and node scores
+      dag.current <- perturbed$dag
+      moves <- perturbed$moves
+      node.scores <- perturbed$nodeScores
+      no.queries <- no.queries + perturbed$queries
+    }
     
     restart <- restart + 1
   }
-  
   return(list(dag = dag.best, queries = no.queries))
 }
 

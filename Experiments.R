@@ -1,76 +1,152 @@
+#' ** Setup computational experiment **
 
-
-#' TODO: Write tests for each layer!
+#' Experiment is done for all combinations of 1) input DAG, 2) k (relative
+#' sample size), 3) beta (probability for an entry to be missing) and 4)
+#' penalty. Each of these combinations is also run on multiple generated
+#' datasets. We use a layered structure to iterate over these in a natural
+#' manner. Each layer collects the results from the previous layer
 #'
-#' Layer 1: for a single dataset and penalty, fit DAG using NAL optimization and
+#' Layer 1: collects output for a single given dataset, single penalty
+#'
+#' Layer 2: single dataset, all penalties
+#'
+#' Layer 3: multiple datasets for given k and beta, all penalties
+#'
+#' Layer 4: multiple k and beta, all penalties
+#'
+#' Layer full: multiple DAGs, multiple k and beta, all penalties
+#'
+#' Experiment can use either local search to fit for unknown node order, or the
+#' optimal algorithm for known node order. In the latter case the maximum number
+#' of parents is 3. Can also optionally run EM on the same datasets to compare
+#' its performance with NAL optimization.
+
+
+#' First (inner) layer of computational experiment
+#'
+#' For a single dataset and penalty, fit DAG using NAL optimization and
 #' optionally using structural EM. Extract number of queries and SHD for both
 #'
-#' Layer 2: for a single dataset, run layer 1 for all penalties. Collect results
-#' in long dataframe with a column marking which penalty was used for each row
+#' @param dat generated dataset to use for fitting
+#' @param dag.true dag to compare learned graph with
+#' @param penalty penalty to be used when fitting. Positive number for a penalty
+#'   of the form n^(-number), or 'bic' or 'aic'
+#' @param str.em TRUE if structural EM should also be run for comparison
+#' @param ordered TRUE if ordered fitting should be done (str.em should be false
+#'   in this case, as no experiment is done to compare ordered fitting with EM)
 #'
-#' Layer 3: for a given DAG, k and beta, generate 'replications' datasets and
-#' run layer 2 for each. rbind results into single dataframe
+#' @return list containing SHD, number of queries and total running time for 
+#' NAL and for EM, in that order
 #'
-#' Layer 4: run layer 3 for all combinations of 1) sample
-#' sizes and 2) betas. Store results in long dataframe with extra columns
-#' marking each entry for 1, 2
-#' 
-#' Layer 5: run layer 4 for a vector of DAGs
-
-#Collect results for single dataset and single penalty
-experiment.layer1 <- function(dat, dag.true, penalty, str.em, nodes.ordered){
-  if(is.null(nodes.ordered)){
-    fit <- fit.dag(dat, penalty, parallel = FALSE, tabuSteps = 10)
-    dag.fitted <- fit$dag
-    no.queries <- fit$queries
-  }
-  else{
-    dag.fitted <- fit.dag.ordered(nodes.ordered, max.parents = 3, dat, penalty, 
-                                  parallel = FALSE)
-    no.queries <- NA
+#' @export
+#'
+#' @examples
+experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
+  
+  #Fit DAG either using ordered or general fitting
+  if(ordered){
+    nodes.ordered <- node.ordering(dag.true)  
+    time <- system.time(dag.fitted <- 
+                          fit.dag.ordered(nodes.ordered,
+                                          max.parents = 3, dat, penalty, 
+                                          parallel = FALSE))[3]
     if(str.em){stop("Structural EM and ordered fitting should not be run in 
                      the same experiment")}
   }
-  
-  distance <- shd(dag.fitted, dag.true)
-  
-  if(str.em){
-    dag.em <- structural.em(dat, maximize = "tabu", 
-                            fit.args = list(replace.unidentifiable = TRUE))
-    no.queries.em <- dag.em$learning$ntests
-    distance.em <- shd(dag.em, dag.true)
+  else{
+    time <- system.time(dag.fitted <- fit.dag(dat, penalty, parallel = FALSE,
+                                              tabuSteps = 10))[3]
   }
-  else{distance.em <- NA; no.queries.em <- NA}
   
-  return(list(distance, no.queries, distance.em, no.queries.em))
+  #Record SHD and number of queries
+  distance <- shd(dag.fitted, dag.true)
+  no.queries <- dag.fitted$learning$ntests
+  
+  #Run structural EM and extract performance measures if necessary. Otherwise
+  #set performance measures to NA
+  if(str.em){
+    time.em <- system.time(dag.em <- structural.em(dat, maximize = "tabu", 
+                                                   fit.args = list(replace.unidentifiable = TRUE)))[3]
+    distance.em <- shd(dag.em, dag.true)
+    no.queries.em <- dag.em$learning$ntests
+  }
+  else{distance.em <- NA; no.queries.em <- NA; time.em <- NA}
+  
+  return(list(distance, no.queries, time, distance.em, no.queries.em, time.em))
 }
 
-experiment.layer2 <- function(dat, dag.true, penalties, str.em, nodes.ordered){
+#' Second layer of computational experiment
+#'
+#' Run layer 1 for different penalties
+#'
+#' @inheritParams experiment.layer1
+#' @param penalties vector of penalties to run layer 1 for
+#'
+#' @return dataframe with penalties on columns and output for each penalty on
+#'   rows
+#'
+#' @export
+#'
+#' @examples
+experiment.layer2 <- function(dat, dag.true, penalties, str.em, ordered){
+  
+  if(str.em && length(penalties) > 1)
+  {warning("Experiment with structural EM should be run for a single penalty.
+           Program will now run EM unnecessarily for different penalties")}
+  
+  #Run layer 1 for each penalty and collect results in appropriately named df 
   result.list <- lapply(penalties, experiment.layer1, dat = dat, 
                         dag.true = dag.true, str.em = str.em,
-                        nodes.ordered = nodes.ordered)
+                        ordered = ordered)
   result.df <- data.frame(penalties, matrix(unlist(result.list), byrow = TRUE,
                                             nrow = length(penalties)))
   
-  names(result.df) <- c("Penalty", "SHD.NAL", "Q.NAL", "SHD.EM", "Q.EM")
+  names(result.df) <- c("penalty", "SHD.NAL", "Q.NAL", "T.NAL", "SHD.EM",
+                        "Q.EM", "T.EM")
   return(result.df)
 }
 
-#TODO implement parallelization
-experiment.layer3 <- function(dag.true, dat.true, k, beta, replications,
-                              penalties, str.em, parallel, nodes.ordered){
+
+#' Third layer of computational experiments
+#'
+#' Runs layer 2 for a given number of replications, each on independently
+#' generated datasets.
+#'
+#' @param dag.true bn or bn.fit object to be used to generate data and to
+#'   compare learned DAG to. If a bn object is provided, one must also provide
+#'   dat.true, so parameter learning can be done internally
+#' @param dat.true optional dataframe containing true data on which synthetic
+#'   data should be based
+#' @param k sample sizes divided by number of parameters in dag.true
+#' @param beta probability for any entry in the generated dataframes to be
+#'   missing
+#' @param replications number of datasets to generate
+#' @param cl optional parallel cluster to be used for parallelization
+#' @inheritParams experiment.layer2
+#'
+#' @return long dataframe with unaggrated results over replications for each
+#'   penalty
+#'
+#' @export
+#'
+#' @examples
+experiment.layer3 <- function(dag.true, dat.true = NULL, k, beta, 
+                              replications, penalties, str.em,
+                              cl = NULL, ordered){
   #If data has been provided, learn parameters from data
-  #Otherwise, assume
-  if(!is.null(dat.true) && class(dag.true) == "bn"){
+  #Otherwise, a bn.fit object must have been provided
+  if(!is.null(dat.true) && class(dag.true)[1] == "bn"){
     dag.true.fit <- bn.fit(dag.true, dat.true)
   }
   else{
-    if(!class(dag.true) == "bn.fit")
+    if(!class(dag.true)[1] == "bn.fit")
     {stop("Provide either data or a bn.fit object")}
     dag.true.fit <- dag.true
     dag.true <- bn.net(dag.true)
   }
   
+  #Generate k*no.params(dag.true.fit) observations, each of which is MCAR with
+  #constant probability beta
   generateData <- function(dag.true.fit, k, beta){
     #Generate complete dataset
     no.params <- nparams(dag.true.fit)
@@ -83,16 +159,28 @@ experiment.layer3 <- function(dag.true, dat.true, k, beta, replications,
       miss <- as.data.frame(matrix(rbinom(n*p, 1, beta), nrow = n, ncol = p))
       dat.genr[miss == 1] <- NA
     }
+    
+    return(dat.genr)
   }
   
   #Generate datasets in list of length 'replications'
-  datasets <- replicate(replications, generateData, simplify = FALSE, k = k,
-                        dag.true.fit = dag.true.fit, beta = beta)
+  datasets <- replicate(replications, simplify = FALSE,
+                        expr = generateData(dag.true.fit = dag.true.fit,
+                                            k = k, beta = beta))
   
-  result.list <- lapply(datasets, experiment.layer2, dag.true = dag.true,
-                        penalties = penalties, str.em = str.em,
-                        nodes.ordered = nodes.ordered)
+  #Run experiment for each dataset, in parallel if a cluster has been provided
+  if(!is.null(cl)){
+    result.list <- parLapply(cl, datasets, experiment.layer2, dag.true = dag.true,
+                             penalties = penalties, str.em = str.em,
+                             ordered = ordered)
+  }
+  else{
+    result.list <- lapply(datasets, experiment.layer2, dag.true = dag.true,
+                          penalties = penalties, str.em = str.em,
+                          ordered = ordered) 
+  }
   
+  #Process results into single dataframe
   require(data.table)
   result.df <- rbindlist(result.list)
   result.df$k <- k
@@ -100,9 +188,21 @@ experiment.layer3 <- function(dag.true, dat.true, k, beta, replications,
   return(result.df)
 }
 
-experiment.layer4 <- function(dag.true, dat.true, dag.name, k.vec, beta.vec, 
-                              replications, penalties, str.em, 
-                              parallel, nodes.ordered){
+#' Fourth layer of computational experiments
+#'
+#' @param dag.name character string marking DAG
+#' @param k.vec numeric vector of values for k to use in layer 3
+#' @param beta.vec numeric vector of values for beta to use in layer 3
+#' @inheritParams experiment.layer3
+#'
+#' @return long dataframe with output from layer 3 for each combination of k and
+#'   beta, marked by a column k and a column beta
+#' @export
+#'
+#' @examples
+experiment.layer4 <- function(dag.true, dat.true = NULL, dag.name, k.vec,  
+                              beta.vec, replications, penalties, str.em, 
+                              cl, ordered){
   input <- expand.grid(k.vec, beta.vec)
   names(input) <- c("k", "beta")
   
@@ -112,8 +212,8 @@ experiment.layer4 <- function(dag.true, dat.true, dag.name, k.vec, beta.vec,
                                         replications = replications, 
                                         penalties = penalties,
                                         str.em = str.em, 
-                                        parallel = parallel, 
-                                        nodes.ordered = nodes.ordered),
+                                        cl = cl, 
+                                        ordered = ordered),
                         SIMPLIFY = F)
   
   require(data.table)
@@ -122,24 +222,58 @@ experiment.layer4 <- function(dag.true, dat.true, dag.name, k.vec, beta.vec,
   return(result.df)
 }
 
-#Use mapply to simultaneously pass DAG, name and data
-experiment.layer5 <- function(dag.vec, dag.names, dat.vec, k.vec, beta.vec, 
-                              replications, penalties, str.em = FALSE, 
-                              parallel = TRUE, nodes.ordered = NULL){
+
+#' Full computational experiment
+#'
+#' @param dag.vec list of bn or bn.fit objects to run experiment for
+#' @param dag.names labels of DAGs in dag.vec (for use in dataframe)
+#' @param dat.vec list of dataframes to be used for parameter learning in DAGs,
+#'   such that datasets can be generated. Any entry can be NULL if the
+#'   corresponding entry in dag.vec is a bn.fit object
+#' @inheritParams experiment.layer4
+#'
+#' @return long dataframe with for each combination of 1) DAG, 2) k, 3) beta, 4)
+#'   penalty, replications rows containing output of a single run of the
+#'   computational experiment. Rows consist of SHD, number of queries and user
+#'   running time for NAL optimization and optionally also for structural EM
+#'
+#' @export
+#'
+#' @examples
+experiment.full <- function(dag.vec, dag.names, dat.vec, k.vec, beta.vec, 
+                            replications, penalties, str.em = FALSE, 
+                            parallel = TRUE, ordered = FALSE){
+  #Prepare parallel cluster if necessary
+  if(parallel){
+    cl <- makeCluster(detectCores() - 1)
+    on.exit(stopCluster(cl))
+    
+    invisible(clusterEvalQ(cl, library(bnlearn)))
+    invisible(clusterEvalQ(cl, source("Scoring.R")))
+    invisible(clusterEvalQ(cl, source("Fit DAG.R")))
+    invisible(clusterEvalQ(cl, source("Experiments.R")))
+  }
+  else{
+    cl <- NULL
+  }
+  
+  #Run layer 4 for each DAG
   result.list <- mapply(experiment.layer4, dag.true = dag.vec, 
                         dat.true = dat.vec, dag.name = dag.names,
-                        MoreArgs = list(dag.true = dag.true, 
-                                        dat.true = dat.true, 
+                        MoreArgs = list(k.vec = k.vec,
+                                        beta.vec = beta.vec,
                                         replications = replications, 
                                         penalties = penalties,
                                         str.em = str.em, 
-                                        parallel = parallel, 
-                                        nodes.ordered = nodes.ordered),
+                                        cl = cl, 
+                                        ordered = ordered),
                         SIMPLIFY = F)
   
+  #Aggregate results into single dataframe and format nicely
   require(data.table)
   result.df <- rbindlist(result.list)
-  result.df$dag <- dag.name
-  return(result.df)
+  result.df <- setcolorder(result.df, c("dag", "k", "beta", "penalty"))
+  result.df <- result.df[with(result.df, order(dag, k, beta, penalty)),]
   
+  return(result.df)
 }

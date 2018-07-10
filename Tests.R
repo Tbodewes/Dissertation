@@ -277,3 +277,53 @@ profvis(fit.dag(alarm, "bic", parallel = FALSE))
 #followed by 7 of 35 seconds used for initially computing score for each
 #move. Finding best allowed moves accounts for ~2 seconds.
 
+#' ** Tests computational experiment **
+
+#' * Layer 1 *
+
+#' Test for complete data
+dat.discrete <- learning.test
+dag.discrete <- model2network("[A][C][F][B|A][D|A:C][E|B:F]")
+
+penalty <- "bic"
+
+experiment.layer1(dat = dat.discrete, dag.true = dag.discrete, penalty = penalty,
+                  str.em = FALSE, ordered = FALSE)
+
+#' Test for ordered fitting with complete data
+
+experiment.layer1(dat = dat.discrete, dag.true = dag.discrete, penalty = penalty,
+                  str.em = FALSE, ordered = TRUE)
+
+#' Test for incomplete data + str.em
+#' Introduce missing values
+n <- dim(dat.discrete)[1]
+p <- dim(dat.discrete)[2]
+prob.missing <- 0.2
+miss <- as.data.frame(matrix(rbinom(n*p, 1, prob.missing), nrow = n, ncol = p))
+discrete.miss <- dat.discrete
+discrete.miss[miss == 1] <- NA
+
+experiment.layer1(dat = discrete.miss, dag.true = dag.discrete, penalty = penalty,
+                  str.em = TRUE, ordered = FALSE)
+
+#' Test for incomplete data + ordered fitting
+
+experiment.layer1(dat = discrete.miss, dag.true = dag.discrete, penalty = penalty,
+                  str.em = FALSE, ordered = TRUE)
+
+#' All appear to work well and give sensible results
+
+#' * Layer 2 * 
+penalties <- c("0.25", "0.5", "0.75", "bic")
+experiment.layer2(dat = discrete.miss, dag.true = dag.discrete,
+                  penalties = penalties, str.em = FALSE, ordered = FALSE)
+
+experiment.layer2(dat = discrete.miss, dag.true = dag.discrete,
+                  penalties = penalties, str.em = FALSE, ordered = TRUE)
+
+#' * Layer 3 *
+
+#' * Layer 4 *
+
+#' * Full experiment *

@@ -1,6 +1,7 @@
 library(bnlearn)
 library(parallel)
 library(stringr)
+library(prodlim)
 source("Scoring.R")
 
 
@@ -15,7 +16,10 @@ source("Scoring.R")
 #' logical for whether the score difference for this move is still correct for
 #' the current DAG, and the score difference for the move
 #'
-#' @param node.names character vectors of nodes
+#' @param node.names character vectors of node names
+#' @param blacklist dataframe indicating which directed arcs are not allowed in
+#'   the DAG that is being learned. Consists of a 'from' and 'to' column
+#' @param whitelist dataframe indicating which directed arcs must be in the DAG
 #'
 #' @return dataframe containing each move, its score and whether the score is
 #'   up-to-date
@@ -51,6 +55,27 @@ initializeMoves <- function(node.names, blacklist, whitelist){
   return(moves)
 }
 
+#' Initialize a graph with whitelisted arcs
+#'
+#' @inheritParams initializeMoves
+#'
+#' @return bn object with specified nodes and whitelisted arcs, otherwise empty
+#' 
+#' @export
+#'
+#' @examples
+initializeDag <- function(node.names, whitelist){
+  dag <- empty.graph(node.names)
+  if(!is.null(whitelist)){
+    for(i in 1:nrow(whitelist))
+    {
+      dag <- set.arc(dag.current, 
+                     as.character(whitelist[i,1]), 
+                     as.character(whitelist[i,2]))
+    }
+  }
+  return(dag)
+}
 
 #' Initialize cluster for DAG fitting
 #'
@@ -555,6 +580,7 @@ perturbGraph <- function(randomMoves, dag, dat, moves, penalty, cl){
 #' @param tabuLength maximum length of tabu list
 #' @param restarts number of random restarts to do
 #' @param randomMoves number of moves to do on DAG when doing random restart
+#' @inheritParams initializeMoves
 #'
 #' @return list containing best DAG found and number of queries involved in the
 #'   computation
@@ -565,16 +591,15 @@ perturbGraph <- function(randomMoves, dag, dat, moves, penalty, cl){
 fit.dag <- function(dat, penalty, parallel = TRUE, cl = NULL,
                     tabuSteps = 10, tabuLength = tabuSteps,
                     restarts = 0, randomMoves = ncol(dat),
-                    blacklist = NULL, whitelist = NULL){
-  #Initialize current graph to empty graph + whitelisted edges
-  dag.current <- empty.graph(names(dat))
-  if(!is.null(whitelist)){
-    for(i in 1:nrow(whitelist))
-    {
-      dag.current <- set.arc(dag.current, 
-                             as.character(whitelist[i,1]), 
-                             as.character(whitelist[i,2]))
-    }
+                    blacklist = NULL, whitelist = NULL,
+                    dag.start = NULL){
+  
+  #If no graph is provided, initialize to empty graph + whitelisted edges
+  if(is.null(dag.start)){
+    dag.current <- initializeDag(names(dat), whitelist)
+  }
+  else{
+    dag.current <- dag.start
   }
   
   #Initialize cluster and load relevant data, or set cluster to null
@@ -768,12 +793,65 @@ fit.dag.ordered <- function(node.names, max.parents, dat, penalty,
 
 
 #' Decide later whether to actually implement structural EM
-em.parametric <- function(dat, dag, cl = NULL){
+em.parametric <- function(dag, dat, max.iter = 5){
+  if(class(dag)[1] != "bn.fit"){
+    if(class(dag)[1] != "bn"){stop("DAG should be either of type bn or type bn.fit")}
+    dag.fit <- bn.fit(dag, dat)
+  }
+  else{
+    dag.fit <- dag
+  }
+  
+  converged <- FALSE
+  iteration <- 0
+  while(!converged && iteration <= max.iter){
+    iteration <- iteration + 1
+    dat.imputed <- impute(dag.fit, dat)
+    dag.fit <- bn.fit(dag, dat.imputed)
+    #TODO: add criterion for convergence
+  }
+  
+  return(list(dag = dag.fit, dat = dat.imputed, iter = iteration))
 }
 
-em.structural <- function(dat, penalty, parallel = TRUE, tabuSteps = 10,
+em.structural <- function(dat, parallel = TRUE, tabuSteps = 10,
                           tabuLength = tabuSteps, blacklist = NULL, 
-                          whitelist = NULL){
+                          whitelist = NULL, max.iter = Inf, debug = FALSE){
   
+  dag.current <- initializeDag(names(dat), whitelist)
+  dat.imputed <- dat
+  fitted.current <- bn.fit(dag.current, dat.imputed)
+  
+  converged <- FALSE
+  iteration <- 0
+  
+  while(!converged && iteration < max.iter){
+    iteration <- iteration + 1
+    
+    #E-step: fit parameters of current network using previously imputed data
+    #and impute data based on new network
+    dat.imputed <- impute(fitted.current, dat, method = "bayes-lw")
+    
+    #M-step: optimize using completed data
+    dag.new <- fit.dag(dat.imputed, penalty = "bic",
+                       parallel = parallel,
+                       tabuSteps = tabuSteps,
+                       tabuLength = tabuLength,
+                       blacklist = blacklist,
+                       whitelist = whitelist,
+                       dag.start = dag.current)
+    fitted.new <- bn.fit(dag.new, dat.imputed)
+    
+    if(debug)
+    {
+      cat("Iteration: ", iteration, "; SHD: ", shd(dag.current, dag.new), "\n",
+          sep = "")
+    }
+    
+    if(isTRUE(all.equal(dag.current, dag.new))){converged <- TRUE}
+    else{dag.current <- dag.new; fitted.current <- fitted.new}
+  }
+  
+  return(dag.new)
 }
-  
+

@@ -40,6 +40,7 @@ AIC(dag.discrete, dat.discrete)/nrow(dat.discrete)
 discrete.fitted <- fit.dag(dat.discrete, "bic", parallel = FALSE)
 graphviz.compare(cpdag(discrete.fitted), cpdag(dag.discrete))
 
+
 #' Check that number of comparisons is similar to inbuilt function
 discrete.fitted$learning$ntests
 tabu(dat.discrete)$learning$ntests
@@ -166,7 +167,7 @@ graphviz.compare(cpdag(order.fitted), cpdag(dag.mix))
 
 #' Determine maximum number of parents
 max(sapply(nodes(dag.alarm), function(node, dag)
-  {length(parents(dag, node))}, dag = dag.alarm))
+{length(parents(dag, node))}, dag = dag.alarm))
 #' Max parents in alarm is 4, but this is computationally infeasible. Use 3
 
 nodes.ordered.alarm <- node.ordering(dag.alarm) 
@@ -253,14 +254,14 @@ findBestAllowedMove(moves, testGraph, tabuList) #Should be C to A, as A to B
 #Also, what is the impact of tabu search and restarts on number of queries and
 #computation time?
 system.time(result.custom.none <- fit.dag(alarm, "bic", parallel = TRUE, 
-                                       tabuSteps = 0, restarts = 0))
+                                          tabuSteps = 0, restarts = 0))
 result.custom.none$queries
 shd(result.custom.none$dag, alarm.actual)
 computeScore(result.custom.none$dag, alarm, "bic")
 #40 seconds, 3638 queries, shd = 30 and score = -11.04
 
 system.time(result.custom.long <- fit.dag(alarm, "bic", parallel = TRUE, 
-                                       tabuSteps = 25, restarts = 10))
+                                          tabuSteps = 25, restarts = 10))
 result.custom.long$queries
 shd(result.custom.long$dag, alarm.actual)
 computeScore(result.custom.long$dag, alarm, "bic")
@@ -315,7 +316,7 @@ experiment.layer1(dat = discrete.miss, dag.true = dag.discrete, penalty = penalt
 #' All appear to work well and give sensible results
 
 #' * Layer 2 * 
-penalties <- c("0.25", "0.5", "0.75", "bic")
+penalties <- c("0.25", "bic")
 experiment.layer2(dat = discrete.miss, dag.true = dag.discrete,
                   penalties = penalties, str.em = FALSE, ordered = FALSE)
 
@@ -324,6 +325,135 @@ experiment.layer2(dat = discrete.miss, dag.true = dag.discrete,
 
 #' * Layer 3 *
 
+#' Test serial implementation
+replications <- 5
+k <- 100
+beta <- 0.2
+
+#' Test with general fitting
+experiment.layer3(dat.true = dat.discrete, dag.true = dag.discrete, k = k,
+                  beta = beta, replications = replications,
+                  penalties = penalties, str.em = FALSE, ordered = FALSE)
+
+#' Test with ordered fitting
+experiment.layer3(dat.true = dat.discrete, dag.true = dag.discrete, k = k,
+                  beta = beta, replications = replications,
+                  penalties = penalties, str.em = FALSE, ordered = TRUE)
+
+
+#' Test for single penalty and structural EM
+experiment.layer3(dat.true = dat.discrete, dag.true = dag.discrete, k = k,
+                  beta = beta, replications = replications,
+                  penalties = c("bic"), str.em = TRUE, ordered = FALSE)
+
+#' Test with bn.fit object 
+dag.discrete.fit <- bn.fit(dag.discrete, dat.discrete)
+experiment.layer3(dag.true = dag.discrete.fit, k = k,
+                  beta = beta, replications = replications,
+                  penalties = penalties, str.em = FALSE, ordered = FALSE)
+
+#' Test parallel implementation
+
+cl <- makeCluster(detectCores() - 1)
+
+invisible(clusterEvalQ(cl, library(bnlearn)))
+invisible(clusterEvalQ(cl, source("Scoring.R")))
+invisible(clusterEvalQ(cl, source("Fit DAG.R")))
+invisible(clusterEvalQ(cl, source("Experiments.R")))
+
+experiment.layer3(dat.true = dat.discrete, dag.true = dag.discrete, k = k,
+                  beta = beta, replications = replications, cl = cl,
+                  penalties = penalties, str.em = FALSE, ordered = FALSE)
+#' Works fine, but gives higher running times, probably due to parallelization
+#' overhead. When comparing times, should use serial implementation
+
 #' * Layer 4 *
 
+k.vec <- c(100, 200)
+beta.vec <- c(0, 0.2)
+dag.name <- "discrete"
+
+experiment.layer4(dag.true = dag.discrete, dat.true = dat.discrete, 
+                  dag.name = dag.name, k.vec = k.vec, beta.vec = beta.vec, 
+                  replications = replications, penalties = penalties, 
+                  str.em = FALSE, cl = cl, ordered = FALSE)
+#Works as desired
+
 #' * Full experiment *
+dag.names <- c("discrete", "gaussian")
+dat.gauss <- gaussian.test
+dag.gauss <- model2network("[A][B][E][G][C|A:B][D|B][F|A:D:E:G]")
+dag.vec <- list(dag.discrete, dag.gauss)
+dat.vec <- list(dat.discrete, dat.gauss)
+
+result.df <- experiment.full(dag.vec = dag.vec, dat.vec = dat.vec, 
+                dag.names = dag.names, k.vec = k.vec, beta.vec = beta.vec, 
+                replications = replications, penalties = penalties, 
+                str.em = FALSE, parallel = TRUE, ordered = FALSE)
+
+#' * Test network pruning *
+
+#' Works as desired, results in graph with at most 3 parents for each node
+dag.grapes <- bn.net(grapes.fit)
+graphviz.compare(dag.grapes, pruneNetwork(dag.grapes, 3))
+
+pruneFit(grapes.fit, max.parents = 3)
+
+#' ** Test parametric and structural EM **
+
+#' Test parametric EM by comparing it to complete data case
+library(profvis)
+bn.fit(dag.discrete, dat.discrete)
+profvis(em.parametric(dag.discrete, discrete.miss, 2)$dag)
+#' Gives about the same result, but is awfully slow, taking 33 seconds for 2
+#' iterations. Time entirely due to data imputation step
+
+dag.em <- em.structural(discrete.miss, parallel = FALSE, debug = TRUE)
+graphviz.compare(dag.em, dag.discrete)
+#' Does not always learn correct graph, occasionally gets some edges wrong
+
+dag.em.gauss <- em.structural(gauss.miss, parallel = FALSE)
+graphviz.compare(dag.em.gauss, dag.gauss)
+
+dag.em.inbuilt <- structural.em(discrete.miss)
+graphviz.compare(dag.em.inbuilt, dag.discrete)
+
+dag.em$learning$ntests
+dag.em.inbuilt$learning$ntests
+#' Custom implementation has significantly fewer queries, unclear why exactly
+
+
+n <- dim(dat.alarm)[1]
+p <- dim(dat.alarm)[2]
+prob.missing <- 0.2
+miss <- as.data.frame(matrix(rbinom(n*p, 1, prob.missing), nrow = n, ncol = p))
+alarm.miss <- dat.alarm
+alarm.miss[miss == 1] <- NA
+head(alarm.miss[,1:8])
+
+profvis(alarm.em <- em.structural(alarm.miss, debug = TRUE))
+system.time(alarm.em.inbuilt <- structural.em(alarm.miss))
+
+shd(alarm.em, dag.alarm)
+shd(alarm.em.inbuilt, dag.alarm)
+
+
+#' ** Experimenting with analyzing results from computational experiments **
+library(dplyr)
+library(ggplot2)
+
+group_by(result.df, dag, k, beta, penalty) %>% 
+  summarise(shd = mean(SHD.NAL), sdev = sd(SHD.NAL), lb = quantile(SHD.NAL, 0.10),
+            ub = quantile(SHD.NAL, 0.90)) %>%
+  ggplot(aes(x = k, y = shd)) + facet_grid(dag ~ beta) + geom_line(aes(linetype = penalty))
+
+#' ** Test externally received networks **
+
+load("tuscania-bn.Rdata")
+grapes.fit <- G.fit
+
+experiment.layer3(dag.true = grapes.fit, k = 100, beta = 0.2, replications = 3, 
+                  penalties = penalties, str.em = FALSE, cl = cl,
+                  ordered = FALSE)
+
+stopCluster(cl)

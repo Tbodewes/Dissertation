@@ -1,5 +1,8 @@
 #' ** Setup computational experiment **
 
+library(data.table)
+library(dplyr)
+
 #' Experiment is done for all combinations of 1) input DAG, 2) k (relative
 #' sample size), 3) beta (probability for an entry to be missing) and 4)
 #' penalty. Each of these combinations is also run on multiple generated
@@ -25,7 +28,9 @@
 #' First (inner) layer of computational experiment
 #'
 #' For a single dataset and penalty, fit DAG using NAL optimization and
-#' optionally using structural EM. Extract number of queries and SHD for both
+#' optionally using structural EM. Extract number of queries and SHD for both.
+#' Can use local search or ordered fitting for NAL optimization. In case of the
+#' former, each node in the true graph should have at most 3 parents
 #'
 #' @param dat generated dataset to use for fitting
 #' @param dag.true dag to compare learned graph with
@@ -35,8 +40,8 @@
 #' @param ordered TRUE if ordered fitting should be done (str.em should be false
 #'   in this case, as no experiment is done to compare ordered fitting with EM)
 #'
-#' @return list containing SHD, number of queries and total running time for 
-#' NAL and for EM, in that order
+#' @return list containing SHD, number of queries and total running time for NAL
+#'   and for EM, in that order
 #'
 #' @export
 #'
@@ -59,7 +64,8 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
   }
   
   #Record SHD and number of queries
-  distance <- shd(dag.fitted, dag.true)
+  no.arcs <- narcs(dag.true)
+  distance <- shd(dag.fitted, dag.true)/no.arcs
   no.queries <- dag.fitted$learning$ntests
   
   #Run structural EM and extract performance measures if necessary. Otherwise
@@ -67,7 +73,7 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
   if(str.em){
     time.em <- system.time(dag.em <- structural.em(dat, maximize = "tabu", 
                                                    fit.args = list(replace.unidentifiable = TRUE)))[3]
-    distance.em <- shd(dag.em, dag.true)
+    distance.em <- shd(dag.em, dag.true)/no.arcs
     no.queries.em <- dag.em$learning$ntests
   }
   else{distance.em <- NA; no.queries.em <- NA; time.em <- NA}
@@ -133,6 +139,8 @@ experiment.layer2 <- function(dat, dag.true, penalties, str.em, ordered){
 experiment.layer3 <- function(dag.true, dat.true = NULL, k, beta, 
                               replications, penalties, str.em,
                               cl = NULL, ordered){
+  cat("k: ", k, "; beta: ", beta, "\n", sep ="")
+  
   #If data has been provided, learn parameters from data
   #Otherwise, a bn.fit object must have been provided
   if(!is.null(dat.true) && class(dag.true)[1] == "bn"){
@@ -203,6 +211,7 @@ experiment.layer3 <- function(dag.true, dat.true = NULL, k, beta,
 experiment.layer4 <- function(dag.true, dat.true = NULL, dag.name, k.vec,  
                               beta.vec, replications, penalties, str.em, 
                               cl, ordered){
+  cat("DAG:", dag.name, "\n")
   input <- expand.grid(k.vec, beta.vec)
   names(input) <- c("k", "beta")
   
@@ -240,7 +249,7 @@ experiment.layer4 <- function(dag.true, dat.true = NULL, dag.name, k.vec,
 #' @export
 #'
 #' @examples
-experiment.full <- function(dag.vec, dag.names, dat.vec, k.vec, beta.vec, 
+experiment.full <- function(dag.vec, dag.names, k.vec, beta.vec, dat.vec,
                             replications, penalties, str.em = FALSE, 
                             parallel = TRUE, ordered = FALSE){
   #Prepare parallel cluster if necessary
@@ -270,10 +279,57 @@ experiment.full <- function(dag.vec, dag.names, dat.vec, k.vec, beta.vec,
                         SIMPLIFY = F)
   
   #Aggregate results into single dataframe and format nicely
-  require(data.table)
+  require(data.table); require(dplyr)
   result.df <- rbindlist(result.list)
-  result.df <- setcolorder(result.df, c("dag", "k", "beta", "penalty"))
+  setcolorder(result.df, c("dag", "k", "beta", "penalty"))
   result.df <- result.df[with(result.df, order(dag, k, beta, penalty)),]
   
   return(result.df)
+}
+
+#' Prune network to restrict size of parental sets
+#'
+#' Keeps only a specified number of parents for each node. The first max.parents
+#' nodes from a vector sorted by node names of the parents are kept. Nodes that
+#' do not have more than max.parents parents are left unaffected
+#'
+#' @param dag bn object to prune
+#' @param max.parents maximum number of parents per node in pruned graph
+#'
+#' @return pruned graph
+#' 
+#' @export
+#'
+#' @examples
+pruneNetwork <- function(dag, max.parents){
+  for(node in nodes(dag)){
+    par <- parents(dag, node)
+    #If too many parents, keep the first ones based on alphabetical order
+    if(length(par) > max.parents){
+      parents(dag, node) <- sort(par)[1:max.parents]
+    }
+  }
+  return(dag)
+}
+
+#' Prune bn.fit objects
+#'
+#' Wrapper for pruneNetwork that prunes bn.fit objects by generating a dataset
+#' from the original network, then pruning the network and then learning
+#' parameters for the pruned network using the generated dataset
+#'
+#' @param dag.fit bn.fit object to prune
+#' @param max.parents maximum number of parents
+#' @param k relative size of synthetic dataset. Actual size is k*number of
+#'   parameters in network
+#'
+#' @return pruned bn.fit object
+#' 
+#' @export
+#'
+#' @examples
+pruneFit <- function(dag.fit, max.parents, k = 100){
+  dat <- rbn(dag.fit, k*nparams(dag.fit))
+  dag.pruned <- pruneNetwork(bn.net(dag.fit, max.parents), max.parents)
+  return(bn.fit(dag.pruned, dat))
 }

@@ -597,9 +597,11 @@ fit.dag <- function(dat, penalty, parallel = TRUE, cl = NULL,
   #If no graph is provided, initialize to empty graph + whitelisted edges
   if(is.null(dag.start)){
     dag.current <- initializeDag(names(dat), whitelist)
+    no.queries <- 0
   }
   else{
     dag.current <- dag.start
+    no.queries <- dag.start$learning$ntests
   }
   
   #Initialize cluster and load relevant data, or set cluster to null
@@ -614,7 +616,7 @@ fit.dag <- function(dat, penalty, parallel = TRUE, cl = NULL,
                               blacklist = blacklist, whitelist = whitelist)
   moves <- initialization$moves
   node.scores <- initialization$nodeScores
-  no.queries <- initialization$queries
+  no.queries <- no.queries + initialization$queries
   
   restart <- 0
   
@@ -814,7 +816,7 @@ em.parametric <- function(dag, dat, max.iter = 5){
   return(list(dag = dag.fit, dat = dat.imputed, iter = iteration))
 }
 
-em.structural <- function(dat, parallel = TRUE, tabuSteps = 10,
+em.structural <- function(dat, parallel = TRUE, tabuSteps = 10, penalty = "bic",
                           tabuLength = tabuSteps, blacklist = NULL, 
                           whitelist = NULL, max.iter = Inf, debug = FALSE){
   
@@ -833,7 +835,7 @@ em.structural <- function(dat, parallel = TRUE, tabuSteps = 10,
     dat.imputed <- impute(fitted.current, dat, method = "bayes-lw")
     
     #M-step: optimize using completed data
-    dag.new <- fit.dag(dat.imputed, penalty = "bic",
+    dag.new <- fit.dag(dat.imputed, penalty = penalty,
                        parallel = parallel,
                        tabuSteps = tabuSteps,
                        tabuLength = tabuLength,
@@ -848,7 +850,7 @@ em.structural <- function(dat, parallel = TRUE, tabuSteps = 10,
           sep = "")
     }
     
-    if(isTRUE(all.equal(dag.current, dag.new))){converged <- TRUE}
+    if(shd(dag.current, dag.new) == 0){converged <- TRUE}
     else{dag.current <- dag.new; fitted.current <- fitted.new}
   }
   

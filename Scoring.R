@@ -227,10 +227,16 @@ computeNAL.gaussian <- function(node, dag, dat){
       dataConfigs <- split(familyData, familyData[,discreteParents])
       
       #Compute average log-likelihood for each configuration, multiplied by
-      #number of observations for each configuration
-      logl <- sum(sapply(dataConfigs, function(dataConfig){
+      #number of observations for each configuration. Note that sum of densities
+      #is already on the order of the number of observations
+      configLogL <- function(dataConfig){
         x <- dataConfig[, node]
-        return(sum(dnorm(x, mean(x), sd(x), log = TRUE)))}))/n
+        if(nrow(dataConfig) > 0)
+        {return(sum(dnorm(x, mean(x), sd(x), log = TRUE)))}
+        else
+        {return(0)}
+      }
+      logl <- sum(sapply(dataConfigs, configLogL))/n
       
       no.params <- length(dataConfigs)*2
       
@@ -250,8 +256,14 @@ computeNAL.gaussian <- function(node, dag, dat){
         
         #Log-likelihood is sum of log-likelihoods for each observation. Hence it
         #is already proportional to the counts for each configuration
-        logl <- sum(sapply(dataConfigs, function(dataConfig){
-          return(as.vector(logLik(lm(f, data = dataConfig)))) }))/n
+        configLogL <- function(dataConfig, f){
+          x <- dataConfig[, node]
+          if(nrow(dataConfig) > 0)
+          {return(as.vector(logLik(lm(f, data = dataConfig))))}
+          else
+          {return(0)}
+        }
+        logl <- sum(sapply(dataConfigs, configLogL, f = f))/n
         
         no.params <- length(dataConfigs)*(length(continuousParents)+2)
       }

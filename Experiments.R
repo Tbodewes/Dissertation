@@ -71,8 +71,7 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
   #Run structural EM and extract performance measures if necessary. Otherwise
   #set performance measures to NA
   if(str.em){
-    time.em <- system.time(dag.em <- structural.em(dat, maximize = "tabu", 
-                                                   fit.args = list(replace.unidentifiable = TRUE)))[3]
+    time.em <- system.time(dag.em <- em.structural(dat))[3]
     distance.em <- shd(dag.em, dag.true)/no.arcs
     no.queries.em <- dag.em$learning$ntests
   }

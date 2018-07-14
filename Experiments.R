@@ -51,29 +51,38 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
   #Fit DAG either using ordered or general fitting
   if(ordered){
     nodes.ordered <- node.ordering(dag.true)  
-    time <- system.time(dag.fitted <- 
-                          fit.dag.ordered(nodes.ordered,
+    time <- system.time(dag.fitted <-  
+                          try(fit.dag.ordered(nodes.ordered,
                                           max.parents = 3, dat, penalty, 
-                                          parallel = FALSE))[3]
+                                          parallel = FALSE)))[3]
     if(str.em){stop("Structural EM and ordered fitting should not be run in 
                      the same experiment")}
   }
   else{
-    time <- system.time(dag.fitted <- fit.dag(dat, penalty, parallel = FALSE,
-                                              tabuSteps = 10))[3]
+    time <- system.time(dag.fitted <- try(fit.dag(dat, penalty, parallel = FALSE,
+                                              tabuSteps = 10)))[3]
   }
   
   #Record SHD and number of queries
-  no.arcs <- narcs(dag.true)
-  distance <- shd(dag.fitted, dag.true)/no.arcs
-  no.queries <- dag.fitted$learning$ntests
+  if(class(dag.fitted) == "try-error"){
+    distance <- NA
+    no.queries <- NA
+  }else {
+    distance <- shd(dag.fitted, dag.true)/narcs(dag.true)
+    no.queries <- dag.fitted$learning$ntests
+  }
   
   #Run structural EM and extract performance measures if necessary. Otherwise
   #set performance measures to NA
   if(str.em){
-    time.em <- system.time(dag.em <- em.structural(dat))[3]
-    distance.em <- shd(dag.em, dag.true)/no.arcs
-    no.queries.em <- dag.em$learning$ntests
+    time.em <- system.time(dag.em <- try(em.structural(dat)))[3]
+    if(class(dag.em) == "try-error"){
+      distance.em <- NA
+      no.queries.em <- NA
+    }else {
+      distance.em <- shd(dag.em, dag.true)/narcs(dag.true)
+      no.queries.em <- dag.em$learning$ntests
+    }
   }
   else{distance.em <- NA; no.queries.em <- NA; time.em <- NA}
   

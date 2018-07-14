@@ -37,7 +37,7 @@ computeScore(dag, dat.discrete, penalty = "aic")
 AIC(dag.discrete, dat.discrete)/nrow(dat.discrete)
 
 #' Local search gives correct DAG up to Markov equivalence in discrete case
-discrete.fitted <- fit.dag(dat.discrete, "bic", parallel = FALSE)
+profvis(discrete.fitted <- fit.dag(dat.discrete, "bic", parallel = FALSE))
 graphviz.compare(cpdag(discrete.fitted), cpdag(dag.discrete))
 
 
@@ -415,6 +415,7 @@ graphviz.compare(dag.em, dag.discrete)
 dag.em.gauss <- em.structural(gauss.miss, parallel = FALSE)
 graphviz.compare(dag.em.gauss, dag.gauss)
 
+debug(structural.em)
 dag.em.inbuilt <- structural.em(discrete.miss)
 graphviz.compare(dag.em.inbuilt, dag.discrete)
 
@@ -431,7 +432,7 @@ alarm.miss <- dat.alarm
 alarm.miss[miss == 1] <- NA
 head(alarm.miss[,1:8])
 
-profvis(alarm.em <- em.structural(alarm.miss, debug = TRUE))
+system.time(alarm.em <- em.structural(alarm.miss, debug = TRUE))
 system.time(alarm.em.inbuilt <- structural.em(alarm.miss))
 
 shd(alarm.em, dag.alarm)

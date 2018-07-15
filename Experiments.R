@@ -50,11 +50,13 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
   
   #Fit DAG either using ordered or general fitting
   if(ordered){
-    nodes.ordered <- node.ordering(dag.true)  
+    nodes.ordered <- node.ordering(dag.true)
+    max.parents <- max(sapply(nodes(dag.true), 
+                              function(node){length(parents(dag.true, node))}))
+    
     time <- system.time(dag.fitted <-  
-                          try(fit.dag.ordered(nodes.ordered,
-                                          max.parents = 3, dat, penalty, 
-                                          parallel = FALSE)))[3]
+                          try(fit.dag.ordered(nodes.ordered, max.parents, dat,  
+                                              penalty, parallel = FALSE)))[3]
     if(str.em){stop("Structural EM and ordered fitting should not be run in 
                      the same experiment")}
   }

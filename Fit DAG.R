@@ -36,14 +36,14 @@ initializeMoves <- function(node.names, blacklist, whitelist){
   if(!is.null(blacklist)){
     #Prevent arc additions
     names(blacklist) <- c("from", "to")
-    moves <- moves[-row.match(data.frame(blacklist), moves),]
+    moves <- moves[-na.omit(row.match(data.frame(blacklist), moves)),]
   }
   if(!is.null(whitelist)){
     #Prevent arc deletions and reversals
     whitelistReverse <- whitelist[, c(2,1)]
     names(whitelist) <- c("from", "to")
     names(whitelistReverse) <- c("from", "to")
-    moves <- moves[-row.match(rbind(whitelist, whitelistReverse), moves),]
+    moves <- moves[-na.omit(row.match(rbind(whitelist, whitelistReverse), moves)),]
   }
   
   #Indicates that none of the scores for the moves has been computed, hence

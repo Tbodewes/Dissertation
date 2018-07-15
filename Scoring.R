@@ -245,8 +245,15 @@ computeNAL.gaussian <- function(node, dag, dat){
       f <- as.formula(paste(node, "~", paste(continuousParents, collapse = " + ")))
       
       #If there are no discrete parents, do a single regression
+      #If there is no data available in this case (all observations for this 
+      #parental set contain at least one missing value), set logL to negative
+      #infinity. Parental set is deemed too complex in this case
       if(length(discreteParents) == 0){
-        logl <- as.vector(logLik(lm(f, data = familyData)))/n
+        if(n > 0){
+          logl <- as.vector(logLik(lm(f, data = familyData)))/n
+        } else {
+          logl <- -Inf
+        }
         no.params <- length(continuousParents) + 2
         
         #If there are discrete and continuous parents, do a regression for each
@@ -258,10 +265,11 @@ computeNAL.gaussian <- function(node, dag, dat){
         #is already proportional to the counts for each configuration
         configLogL <- function(dataConfig, f){
           x <- dataConfig[, node]
-          if(nrow(dataConfig) > 0)
-          {return(as.vector(logLik(lm(f, data = dataConfig))))}
-          else
-          {return(0)}
+          if(nrow(dataConfig) > 0){
+            return(as.vector(logLik(lm(f, data = dataConfig))))
+          } else {
+            return(0)
+          }
         }
         logl <- sum(sapply(dataConfigs, configLogL, f = f))/n
         

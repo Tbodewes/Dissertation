@@ -69,8 +69,8 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
   if(class(dag.fitted) == "try-error"){
     distance <- NA
     no.queries <- NA
-  }else {
-    distance <- shd(dag.fitted, dag.true)/narcs(dag.true)
+  } else {
+    distance <- shd(bn.net(bn.fit(dag.fitted, dat)), dag.true)/narcs(dag.true)
     no.queries <- dag.fitted$learning$ntests
   }
   
@@ -117,8 +117,8 @@ experiment.layer2 <- function(dat, dag.true, penalties, str.em, ordered){
   result.df <- data.frame(penalties, matrix(unlist(result.list), byrow = TRUE,
                                             nrow = length(penalties)))
   
-  names(result.df) <- c("penalty", "SHD.NAL", "Q.NAL", "T.NAL", "SHD.EM",
-                        "Q.EM", "T.EM")
+  names(result.df) <- c("penalty", "SHD.NAL", "QUE.NAL", "TIM.NAL", "SHD.SEM",
+                        "QUE.SEM", "TIM.SEM")
   return(result.df)
 }
 

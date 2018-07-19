@@ -2,6 +2,7 @@ library(bnlearn)
 library(parallel)
 library(stringr)
 library(prodlim)
+library(dplyr)
 source("Scoring.R")
 
 
@@ -855,5 +856,37 @@ em.structural <- function(dat, parallel = TRUE, tabuSteps = 10, penalty = "bic",
   }
   
   return(dag.new)
+}
+
+
+bootstrap.dag <- function(dat, penalty, tabuSteps = 10, tabuLength = tabuSteps, 
+                          blacklist = NULL, whitelist = NULL, samples = 10, 
+                          sampleSize = nrow(dat)){
+  require(dplyr)
+  
+  bootstrap.single <- function(dummy, dat, penalty, tabuSteps, tabuLength,
+                               blacklist, whitelist, sampleSize){
+    dat.sample <- sample_n(dat, sampleSize, replace = TRUE)
+    dag.fitted <- fit.dag(dat.sample, penalty = penalty,
+                          parallel = FALSE,
+                          tabuSteps = tabuSteps,
+                          tabuLength = tabuLength,
+                          blacklist = blacklist,
+                          whitelist = whitelist)
+    return(dag.fitted)
+  }
+  
+  cl <- initializeCluster(dat)
+  on.exit(stopCluster(cl))
+  dag.samples <- parLapply(cl, 1:samples, bootstrap.single, dat = dat, 
+                           penalty = penalty,
+                           tabuSteps = tabuSteps,
+                           tabuLength = tabuLength,
+                           blacklist = blacklist,
+                           whitelist = whitelist,
+                           sampleSize = sampleSize) 
+  #Does this prevent repeated exporting?
+  
+  return(dag.samples)
 }
 

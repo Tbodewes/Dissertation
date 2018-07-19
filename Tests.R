@@ -1,11 +1,24 @@
-source("Scoring.R")
-source("Fit DAG.R")
-library(Rgraphviz)
+invisible(lapply(c("Scoring.R", "Fit DAG.R", "Experiments.R"), source))
 library(profvis)
+
+
+
+experiment.full(dag.vec = dag.vec.pruned[1], 
+                dag.names = dag.names[1],
+                dat.vec = dat.vec[1],
+                k.vec = 500,  beta.vec = 0,
+                replications = replications,
+                penalties = penalties, str.em = FALSE,
+                parallel = FALSE, ordered = TRUE)
+
 
 #' **Test scoring function and local search for discrete data**
 dat.discrete <- learning.test
 dag.discrete <- model2network("[A][C][F][B|A][D|A:C][E|B:F]")
+
+discrete.boot <- bootstrap.dag(dat.discrete, penalty = "bic")
+
+custom.strength(discrete.boot, nodes(dag.discrete))
 
 #' Test by comparing to inbuilt function in complete data case
 computeNAL(dag.discrete, dat.discrete)
@@ -182,6 +195,24 @@ computeScore.node("CCHL", alarm.order.fitted, dat.alarm, "bic")
 
 computeScore.node("HYP", dag.alarm, dat.alarm, "bic")
 computeScore.node("HYP", alarm.order.fitted, dat.alarm, "bic")
+
+#Test ordered fitting of sangiovese graph
+debug(experiment.layer1)
+experiment.full(dag.vec = dag.vec.pruned[3], 
+                dag.names = dag.names[3],
+                dat.vec = dat.vec[3],
+                k.vec = 100,  beta.vec = 0,
+                replications = 1,
+                penalties = "bic", str.em = FALSE,
+                parallel = FALSE, ordered = TRUE)
+
+experiment.full(dag.vec = list(ecoli.pruned), 
+                dag.names = dag.names[2],
+                dat.vec = dat.vec[2],
+                k.vec = 200,  beta.vec = 0,
+                replications = 1,
+                penalties = "bic", str.em = FALSE,
+                parallel = FALSE, ordered = TRUE)
 
 #' ** Test white- and blacklisting **
 
@@ -437,6 +468,10 @@ system.time(alarm.em.inbuilt <- structural.em(alarm.miss))
 
 shd(alarm.em, dag.alarm)
 shd(alarm.em.inbuilt, dag.alarm)
+
+
+
+
 
 
 #' ** Experimenting with analyzing results from computational experiments **

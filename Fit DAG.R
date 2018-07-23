@@ -843,7 +843,8 @@ em.structural <- function(dat, parallel = TRUE, tabuSteps = 10, penalty = "bic",
                        blacklist = blacklist,
                        whitelist = whitelist,
                        dag.start = dag.current)
-    fitted.new <- bn.fit(dag.new, dat.imputed)
+    
+    fitted.new <- bn.fit(dag.new, dat.imputed, replace.unidentifiable = TRUE)
     
     if(debug)
     {

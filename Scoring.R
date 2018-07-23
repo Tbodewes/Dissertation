@@ -231,7 +231,7 @@ computeNAL.gaussian <- function(node, dag, dat){
       #is already on the order of the number of observations
       configLogL <- function(dataConfig){
         x <- dataConfig[, node]
-        if(nrow(dataConfig) > 0)
+        if(nrow(dataConfig) > 10)
         {return(sum(dnorm(x, mean(x), sd(x), log = TRUE)))}
         else
         {return(0)}
@@ -249,7 +249,7 @@ computeNAL.gaussian <- function(node, dag, dat){
       #parental set contain at least one missing value), set logL to negative
       #infinity. Parental set is deemed too complex in this case
       if(length(discreteParents) == 0){
-        if(n > 0){
+        if(n > 5*length(continuousParents)){
           logl <- as.vector(logLik(lm(f, data = familyData)))/n
         } else {
           logl <- -Inf
@@ -265,7 +265,7 @@ computeNAL.gaussian <- function(node, dag, dat){
         #is already proportional to the counts for each configuration
         configLogL <- function(dataConfig, f){
           x <- dataConfig[, node]
-          if(nrow(dataConfig) > 0){
+          if(nrow(dataConfig) > 5*length(continuousParents)){
             return(as.vector(logLik(lm(f, data = dataConfig))))
           } else {
             return(0)

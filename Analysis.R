@@ -241,7 +241,7 @@ saveRDS(result.em.alarm0.2, file = "Result_em_alarm2_second.RDS")
 #                                    replications = replications, 
 #                                    penalties = penalties.em, str.em = TRUE,
 #                                    parallel = TRUE, ordered = FALSE))
-# saveRDS(result.em.ecoli, file = "Result_em_ecoli.RDS")
+saveRDS(result.em.ecoli, file = "Result_em_ecoli.RDS")
 
 system.time(result.em.ecoli0.05 <- experiment.full(dag.vec = dag.vec[2], 
                                                           dag.names = dag.names[2],
@@ -321,7 +321,7 @@ result.ordered.alarm <- readRDS("Result_ordered_alarm.RDS")
 result.ordered.ecoli <- readRDS("Result_ordered_ecoli.RDS")
 result.ordered.sangiovese <- readRDS("Result_ordered_sangiovese.RDS")
 
-result.ordered <- rbind(result.ordered.alarm, result.ordered.ecoli,
+result.ordered <- rbind(result.ordered, result.ordered.alarm, result.ordered.ecoli,
                         result.ordered.sangiovese)
 saveRDS(result.ordered, file = "Result_ordered.RDS")
 
@@ -330,9 +330,9 @@ result.unordered.alarm <- readRDS("Result_unordered_alarm.RDS")
 result.unordered.ecoli <- readRDS("Result_unordered_ecoli.RDS")
 result.unordered.sangiovese <- readRDS("Result_unordered_sangiovese.RDS")
 
-result.unordered <- rbind(result.unordered.alarm, result.unordered.ecoli,
+result.unordered <- rbind(result.unordered, result.unordered.alarm, result.unordered.ecoli,
                           result.unordered.sangiovese)
-saveRDS(result.unordered, file = "Result_unordered_first.RDS")
+saveRDS(result.unordered, file = "Result_unordered.RDS")
 
 
 result.em.alarm <- readRDS("Result_em_alarm.RDS")
@@ -351,6 +351,7 @@ levels(result.ordered$penalty)[1] <- "0.10"
 levels(result.unordered$penalty)[1] <- "0.10"
 
 #' Plot results
+
 
 pdf("Graph_ordered.pdf", height = 6, width = 8)
 result.ordered %>% filter(beta != 0.4)  %>% group_by(dag, k, beta, penalty) %>% 
@@ -400,8 +401,8 @@ result.em.cast <- result.em %>%
 
 result.em.tidy <- na.omit(spread(result.em.cast, key = method, value = value)) %>%
   mutate(ratio = NAL/SEM) %>% group_by(dag, k, beta, penalty, metric) %>%
-  summarise(ratio.av = mean(ratio), se = sd(ratio)/n(), lb = min(ratio),
-            ub = max(ratio))
+  summarise(ratio.av = mean(ratio), se = sd(ratio)/n(), lb = ratio.av - 2*se,
+            ub = ratio.av + 2*se)
 
 emplot.height <- 4.5
 emplot.width <- 7.5
@@ -416,7 +417,8 @@ filter(result.em.tidy, metric == "SHD", beta != 0.4) %>%
                     width = 4)) +
   labs(x = "Relative sample size (k)", y = "SHD of NAL / SHD of S-EM") +
   ggtitle("SHD comparison of NAL and Structural EM") + 
-  geom_hline(yintercept = 1, linetype = 2)
+  geom_hline(yintercept = 1, linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4)
 dev.off()
 
 
@@ -429,7 +431,8 @@ filter(result.em.tidy, metric == "QUE", beta != 0.4) %>%
                     width = 4)) +
   labs(x = "Relative sample size (k)", y = "Queries of NAL / queries of S-EM") +
   ggtitle("Computational cost comparison of NAL and Structural EM") + 
-  geom_hline(yintercept = 1, linetype = 2)
+  geom_hline(yintercept = 1, linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4)
 dev.off()
 
 pdf("Graph_EM_T.pdf", height = emplot.height, width = emplot.width) 
@@ -441,7 +444,8 @@ filter(result.em.tidy, metric == "TIM", beta != 0.4) %>%
   geom_errorbar(aes(ymin = lb, ymax = ub,
                     width = 4)) +
   labs(x = "Relative sample size (k)", y = "Time of NAL / time of S-EM") + 
-  geom_hline(yintercept = 1, linetype = 2)
+  geom_hline(yintercept = 1, linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4)
 dev.off()
 
 

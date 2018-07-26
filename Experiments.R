@@ -24,7 +24,6 @@ library(dplyr)
 #' of parents is 3. Can also optionally run EM on the same datasets to compare
 #' its performance with NAL optimization.
 
-
 #' First (inner) layer of computational experiment
 #'
 #' For a single dataset and penalty, fit DAG using NAL optimization and
@@ -77,7 +76,7 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
   #Run structural EM and extract performance measures if necessary. Otherwise
   #set performance measures to NA
   if(str.em){
-    time.em <- system.time(dag.em <- try(em.structural(dat)))[3]
+    time.em <- system.time(dag.em <- em.structural(dat, parallel = FALSE))[3]
     if(class(dag.em) == "try-error"){
       distance.em <- NA
       no.queries.em <- NA

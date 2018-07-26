@@ -796,20 +796,21 @@ fit.dag.ordered <- function(node.names, max.parents, dat, penalty,
 
 
 #' Decide later whether to actually implement structural EM
-em.parametric <- function(dag, dat, max.iter = 5){
+em.parametric <- function(dag, dat, max.iter = 5, particles = 100, debug = FALSE){
   if(class(dag)[1] != "bn.fit"){
     if(class(dag)[1] != "bn"){stop("DAG should be either of type bn or type bn.fit")}
-    dag.fit <- bn.fit(dag, dat)
+    dag.fit <- bn.fit(dag, dat, replace.unidentifiable = TRUE)
   }
   else{
     dag.fit <- dag
   }
   
   converged <- FALSE
-  iteration <- 0
+  iteration <- 1
   while(!converged && iteration <= max.iter){
     iteration <- iteration + 1
-    dat.imputed <- impute(dag.fit, dat)
+    dat.imputed <- impute(dag.fit, dat, method = "bayes-lw", n = particles,
+                          debug = debug)
     dag.fit <- bn.fit(dag, dat.imputed)
     #TODO: add criterion for convergence
   }
@@ -844,7 +845,12 @@ em.structural <- function(dat, parallel = TRUE, tabuSteps = 10, penalty = "bic",
                        whitelist = whitelist,
                        dag.start = dag.current)
     
-    fitted.new <- bn.fit(dag.new, dat.imputed, replace.unidentifiable = TRUE)
+    if(all(sapply(dat, is.factor))){
+      fitted.new <- bn.fit(dag.new, dat.imputed, method = "bayes", iss = 1)
+    }
+    else{
+      fitted.new <- bn.fit(dag.new, dat.imputed, replace.unidentifiable = TRUE)
+    }
     
     if(debug)
     {
@@ -862,7 +868,7 @@ em.structural <- function(dat, parallel = TRUE, tabuSteps = 10, penalty = "bic",
 
 bootstrap.dag <- function(dat, penalty, tabuSteps = 10, tabuLength = tabuSteps, 
                           blacklist = NULL, whitelist = NULL, samples = 10, 
-                          sampleSize = nrow(dat)){
+                          sampleSize = nrow(dat), parallel = FALSE){
   require(dplyr)
   
   bootstrap.single <- function(dummy, dat, penalty, tabuSteps, tabuLength,
@@ -877,9 +883,10 @@ bootstrap.dag <- function(dat, penalty, tabuSteps = 10, tabuLength = tabuSteps,
     return(dag.fitted)
   }
   
+  if(parallel){
   cl <- initializeCluster(dat)
   on.exit(stopCluster(cl))
-  dag.samples <- parLapply(cl, 1:samples, bootstrap.single, dat = dat, 
+  dag.samples <- parLapplyLB(cl, 1:samples, bootstrap.single, dat = dat, 
                            penalty = penalty,
                            tabuSteps = tabuSteps,
                            tabuLength = tabuLength,
@@ -887,6 +894,15 @@ bootstrap.dag <- function(dat, penalty, tabuSteps = 10, tabuLength = tabuSteps,
                            whitelist = whitelist,
                            sampleSize = sampleSize) 
   #Does this prevent repeated exporting?
+  } else {
+    dag.samples <- lapply(1:samples, bootstrap.single, dat = dat, 
+                          penalty = penalty,
+                          tabuSteps = tabuSteps,
+                          tabuLength = tabuLength,
+                          blacklist = blacklist,
+                          whitelist = whitelist,
+                          sampleSize = sampleSize)
+  }
   
   return(dag.samples)
 }

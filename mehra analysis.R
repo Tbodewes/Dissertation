@@ -1,14 +1,7 @@
 library(data.table)
 library(tidyverse)
-library(GGally)
 
-invisible(lapply(c("Scoring.R", "Fit DAG.R", "Experiments.R", 
-                   "MEHRA functions"), source))
 
-#' TODO:
-#' - Document computeMSE and parImpute
-#' - Test computeMSE
-#' - Test and benchmark parImpute
 
 #' ** Structure learning and hyperparameter tuning **
 mehra.daily <- readRDS("mehra_daily.RDS")
@@ -17,69 +10,153 @@ training <- filter(mehra.daily, Year <= 2004)
 validation <- filter(mehra.daily, between(Year, 2005, 2006))
 testing <- filter(mehra.daily, Year > 2006)
 
-penalties <- c("0.10", "0.25")
-thresholds <- c(0.50, 0.75, 0.95, 0.99)
-no.boot.tuning <- 100
-no.boot.testing <- 200
-particles.tuning <- 100
-particles.testing <- 100
+invisible(lapply(c("Scoring.R", "Fit DAG.R", "Experiments.R", 
+                   "MEHRA functions.R"), source))
+
+penalties <- c("0.10", "0.25", "0.40")
+thresholds <- c(0.50, 0.65, 0.80, 0.95, 0.99)
+no.boot <- 200
+particles <- 500
+obs.perParam <- 100
 
 bl <-  {data.frame(
-  "from" = c(rep("Region", 8), rep("Zone", 8), rep("Type", 8), rep("Year", 8),
-             rep("Season", 8), rep("Month", 8),
-             rep("Latitude", 8), rep("Longitude", 8), rep("Altitude", 8),
-             rep("CVD60", 21), rep("t2m", 9), rep("ws", 9), rep("wd", 9),
-             rep("tp", 9), rep("blh", 9), rep("ssr", 9), rep("no2", 9),
-             rep("so2", 9), rep("co", 9), rep("o3", 9), rep("pm10", 9),
-             rep("pm2.5", 9), rep("CVD.lm", 22), rep("CVD.ly", 23),
-             rep("CVD.l1000", 24)),
-  "to" = c("Zone", "Type", "Year", "Season", "Month", "Latitude",
-           "Longitude", "Altitude", "Region", "Type", "Year", "Season", "Month",
-           "Latitude", "Longitude", "Altitude", "Region", "Zone",
-           "Year", "Season", "Month", "Latitude", "Longitude",
-           "Altitude", "Region", "Zone", "Type", "Season", "Month",
-           "Latitude", "Longitude", "Altitude", "Region", "Zone",
-           "Type", "Year", "Month", "Latitude", "Longitude",
-           "Altitude", "Region", "Zone", "Type", "Year", "Season", 
-           "Latitude", "Longitude", "Altitude", "Region", "Zone", "Type", "Year",
-           "Season", "Month", "Longitude", "Altitude", "Region",
-           "Zone", "Type", "Year", "Season", "Month",  "Latitude",
-           "Altitude", "Region", "Zone", "Type", "Year", "Season", "Month",
-           "Latitude", "Longitude", "Region", "Zone", "Type",
-           "Year", "Season", "Month", "Latitude", "Longitude",
-           "Altitude", "t2m", "ws", "wd", "tp", "blh", "ssr", "no2", "o3",
-           "so2", "co", "pm10", "pm2.5", "Region", "Zone", "Type", "Year",
-           "Season", "Month", "Latitude", "Longitude", "Altitude",
-           "Region", "Zone", "Type", "Year", "Season", "Month", 
-           "Latitude", "Longitude", "Altitude", "Region", "Zone", "Type",
-           "Year", "Season", "Month", "Latitude", "Longitude",
-           "Altitude", "Region", "Zone", "Type", "Year", "Season", "Month",
-           "Latitude", "Longitude", "Altitude", "Region", "Zone",
-           "Type", "Year", "Season", "Month", "Latitude",
-           "Longitude", "Altitude", "Region", "Zone", "Type", "Year", "Season",
+  "from" = c(rep("Region", 9), rep("Zone", 9), rep("Type", 9),
+             rep("Year", 9), rep("Season", 9), rep("Month", 9),
+             rep("Latitude", 9), rep("Longitude", 9), rep("Altitude", 9),
+             rep("Day", 9), rep("t2m", 10), rep("ws", 10),
+             rep("wd", 10), rep("tp", 10), rep("blh", 10),
+             rep("ssr", 10), rep("no2", 10), rep("so2", 10), 
+             rep("co", 10), rep("o3", 10), rep("pm10", 10),
+             rep("pm2.5", 10), rep("CVD60", 22), rep("CVD.ly", 23)),
+  
+  "to" = c("Zone", "Type", "Year", "Season", "Month", 
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Type", "Year", "Season", "Month",  
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Year", "Season", "Month", 
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Month",
+            "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season", 
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season",
+           "Month", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season",
+           "Month",  "Latitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season", 
+           "Month", "Latitude", "Longitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season", 
            "Month", "Latitude", "Longitude", "Altitude",
+           
            "Region", "Zone", "Type", "Year", "Season", "Month", 
-           "Latitude", "Longitude", "Altitude", "Region", "Zone", "Type",
-           "Year", "Season", "Month", "Latitude", "Longitude",
-           "Altitude", "Region", "Zone", "Type", "Year", "Season", "Month",
-           "Latitude", "Longitude", "Altitude", "Region", "Zone",
-           "Type", "Year", "Season", "Month", "Latitude",
-           "Longitude", "Altitude", "Region", "Zone", "Type", "Year", "Season",
+           "Latitude", "Longitude", "Altitude", "Day",
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month", 
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month", 
+           "Latitude", "Longitude", "Altitude", "Day", 
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day",
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day",
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day",
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day",
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day",
+           
+           "Region", "Zone", "Type", "Year", "Season", "Month",
+           "Latitude", "Longitude", "Altitude", "Day",
+           
+           "Region", "Zone", "Type", "Year", "Season",
            "Month", "Latitude", "Longitude", "Altitude",
-           "Region", "Zone", "Type", "Year", "Season", "Month", 
-           "Latitude", "Longitude", "Altitude", "Region", "Zone", "Type",
-           "Year", "Season", "Month", "Latitude", "Longitude",
-           "Altitude", "t2m", "ws", "wd", "tp", "blh", "ssr", "no2", "o3",
-           "so2", "co", "pm10", "pm2.5", "CVD60", "Region", "Zone", "Type",
-           "Year", "Season", "Month", "Latitude", "Longitude",
-           "Altitude", "t2m", "ws", "wd", "tp", "blh", "ssr", "no2", "o3",
-           "so2", "co", "pm10", "pm2.5", "CVD60", "CVD.lm", "Region", "Zone", "Type",
-           "Year", "Season", "Month", "Latitude", "Longitude",
-           "Altitude", "t2m", "ws", "wd", "tp", "blh", "ssr", "no2", "o3",
-           "so2", "co", "pm10", "pm2.5", "CVD60", "CVD.lm", "CVD.ly"))
+           "t2m", "ws", "wd", "tp", "blh", "ssr", "no2", 
+           "o3", "so2", "co", "pm10", "pm2.5", "Day",
+           
+           "Region", "Zone", "Type", "Year", "Season",
+           "Month", "Latitude", "Longitude", "Altitude",
+           "t2m", "ws", "wd", "tp", "blh", "ssr", "no2", 
+           "o3", "so2", "co", "pm10", "pm2.5", "Day", "CVD60"),
+           stringsAsFactors = FALSE)
 }
 
-bootSamples10 <- bootstrap.dag()
+
+# Tuning phase
+bootSamples10 <- bootstrap.dag(samples = no.boot, dat = training, penalty = "0.10",  
+                               blacklist = bl, parallel = TRUE)
+saveRDS(bootSamples10, "bootSamples10.rds")
+
+bootSamples25 <- bootstrap.dag(samples = no.boot, dat = training, penalty = "0.25",  
+                               blacklist = bl, parallel = TRUE)
+saveRDS(bootSamples25, "bootSamples25.rds")
+
+bootSamples40 <- bootstrap.dag(samples = no.boot, dat = training, penalty = "0.40",  
+                               blacklist = bl, parallel = TRUE)
+saveRDS(bootSamples40, "bootSamples40.rds")
+
+bootSamples10 <- readRDS("bootSamples10.rds")
+bootSamples25 <- readRDS("bootSamples25.rds")
+bootSamples40 <- readRDS("bootSamples40.rds")
+
+RMSE10 <- lapply(thresholds, validate, samples = bootSamples10, penalty = "0.10", 
+                 dat.train = training, dat.val = validation, particles = particles,
+                 obs.perParam = obs.perParam)
+saveRDS(RMSE10, "RMSE10.rds")
+
+RMSE25 <- lapply(thresholds, validate, samples = bootSamples25, penalty = "0.25", 
+                 dat.train = training, dat.val = validation, particles = particles,
+                 obs.perParam = obs.perParam)
+saveRDS(RMSE25, "RMSE25.rds")
+
+RMSE40 <- lapply(thresholds, validate, samples = bootSamples40, penalty = "0.40", 
+                 dat.train = training, dat.val = validation, particles = particles,
+                 obs.perParam = obs.perParam)
+saveRDS(RMSE40, "RMSE40.rds")
+
+#Testing phase
+penalty.best <- TBD
+threshold.best <- TBD 
+
+training.full <- rbind(training.validation)
+
+bootSamples.best <- bootstrap.dag(samples = no.boot, dat = training.full,   
+                                  penalty = penalty.best, blacklist = bl,
+                                  parallel = TRUE)
+
+strength.best <- custom.strength(bootSamples.best, names(mehra.daily))
+
+mehra.result <- validate(threshold.best, bootSamples.best, penalty = penalty.best, 
+                         dat.train = training.full, dat.val = testing, 
+                         particles = particles, obs.perParam = obs.perParam, 
+                         returnFull = TRUE)
+
 
 
 #' ** Data extraction and transformation **
@@ -125,6 +202,8 @@ mehra.bootsamples <- readRDS("MEHRA_bootsamples.RDS")
 strength <- custom.strength(mehra.bootsamples, c(names(mehra.daily), "CVD.lm", "CVD.l1000"))
 
 dag.mehra.99 <- averaged.network(strength, c(names(mehra.daily), "CVD.lm", "CVD.l1000"), 0.99)
+
+dag.mehra.50 <- averaged.network(strength, c(names(mehra.daily), "CVD.lm", "CVD.l1000"), 0.50)
 
 dag.mehra.95 <- averaged.network(strength, names(mehra.daily), 0.95)
 

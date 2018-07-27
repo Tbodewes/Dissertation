@@ -29,8 +29,8 @@ beta.vec <- c(0, 0.05, 0.1, 0.2)
 replications <- 10
 penalties <- c("0.10", "0.25", "0.40", "0.60", "bic", "aic")
 
-penalties.em <-  c("0.25")
-k.vec.em <- c(10, 50, 100, 250, 500, 1000)
+penalties.em <-  c("0.10", "0.25", "0.40")
+k.vec.em <- c(10, 50, 100, 250, 500)
 beta.vec.em <- c(0.05, 0.1, 0.2)
 
 dag.vec.pruned <- mapply(pruneFit, dag = dag.vec, max.parents = c(2, 2, 3))
@@ -212,7 +212,7 @@ system.time(result.em.alarm0.05 <- experiment.full(dag.vec = dag.vec[1],
                                                   replications = replications,
                                                   penalties = penalties.em, str.em = TRUE,
                                                   parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.alarm0.05, file = "Result_em_alarm05_second.RDS")
+saveRDS(result.em.alarm0.05, file = "Result_em_alarm05.RDS")
 
 system.time(result.em.alarm0.1 <- experiment.full(dag.vec = dag.vec[1], 
                                                   dag.names = dag.names[1],
@@ -221,7 +221,7 @@ system.time(result.em.alarm0.1 <- experiment.full(dag.vec = dag.vec[1],
                                                   replications = replications,
                                                   penalties = penalties.em, str.em = TRUE,
                                                   parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.alarm0.1, file = "Result_em_alarm1_second.RDS")
+saveRDS(result.em.alarm0.1, file = "Result_em_alarm1.RDS")
 
 system.time(result.em.alarm0.2 <- experiment.full(dag.vec = dag.vec[1], 
                                                   dag.names = dag.names[1],
@@ -230,7 +230,7 @@ system.time(result.em.alarm0.2 <- experiment.full(dag.vec = dag.vec[1],
                                                   replications = replications,
                                                   penalties = penalties.em, str.em = TRUE,
                                                   parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.alarm0.2, file = "Result_em_alarm2_second.RDS")
+saveRDS(result.em.alarm0.2, file = "Result_em_alarm2.RDS")
 
 
 
@@ -268,7 +268,7 @@ system.time(result.em.ecoli0.2 <- experiment.full(dag.vec = dag.vec[2],
                                                          replications = replications,
                                                          penalties = penalties.em, str.em = TRUE,
                                                          parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.ecoli0.2, file = "Result_em_ecoli2_second.RDS")
+saveRDS(result.em.ecoli0.2, file = "Result_em_ecoli2.RDS")
 
 
 
@@ -389,7 +389,10 @@ result.em <- readRDS("Result_em.RDS")
 names(result.em) <- c("dag", "k", "beta", "penalty", "SHD.NAL", "QUE.NAL", "TIM.NAL", "SHD.SEM",
                       "QUE.SEM", "TIM.SEM")
 
-sum(is.na(result.em$SHD.SEM))
+#Count number of successful replications for each case 
+View(result.em %>% na.omit %>%
+  group_by(dag, k, beta, penalty) %>%
+  summarise(count = n()))
 
 result.em.cast <- result.em %>% 
   mutate(id = row_number()) %>%
@@ -408,9 +411,9 @@ emplot.height <- 4.5
 emplot.width <- 7.5
 
 pdf("Graph_EM_SHD.pdf", height = emplot.height, width = emplot.width) 
-filter(result.em.tidy, metric == "SHD", beta != 0.4) %>% 
+filter(result.em.tidy, metric == "SHD") %>% 
   ggplot(aes(k, ratio.av)) +
-  geom_line(size = 0.05) + 
+  geom_line(aes(color = penalty)) + 
   facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
   geom_point() +
   geom_errorbar(aes(ymin = lb, ymax = ub,
@@ -425,7 +428,8 @@ dev.off()
 pdf("Graph_EM_Q.pdf", height = emplot.height, width = emplot.width) 
 filter(result.em.tidy, metric == "QUE", beta != 0.4) %>% 
   ggplot(aes(k, ratio.av)) +
-  geom_line() + facet_grid(dag ~ beta, scale = "free_y",labeller = label_both) +
+  geom_line(aes(color = penalty)) + 
+  facet_grid(dag ~ beta, scale = "free_y",labeller = label_both) +
   geom_point() +
   geom_errorbar(aes(ymin = lb, ymax = ub,
                     width = 4)) +
@@ -438,8 +442,8 @@ dev.off()
 pdf("Graph_EM_T.pdf", height = emplot.height, width = emplot.width) 
 filter(result.em.tidy, metric == "TIM", beta != 0.4) %>% 
   ggplot(aes(k, ratio.av)) +
-  geom_line() + facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
-  
+  geom_line(aes(color = penalty)) + 
+  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
   geom_point() +
   geom_errorbar(aes(ymin = lb, ymax = ub,
                     width = 4)) +

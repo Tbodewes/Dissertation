@@ -105,16 +105,19 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
 #' @examples
 experiment.layer2 <- function(dat, dag.true, penalties, str.em, ordered){
   
-  if(str.em && length(penalties) > 1)
-  {warning("Experiment with structural EM should be run for a single penalty.
-           Program will now run EM unnecessarily for different penalties")}
+  #Structural EM always uses BIC and should be run only once
+  str.em.vec <- rep(FALSE, length(penalties))
+  str.em.vec[1] <- str.em
   
-  #Run layer 1 for each penalty and collect results in appropriately named df 
-  result.list <- lapply(penalties, experiment.layer1, dat = dat, 
-                        dag.true = dag.true, str.em = str.em,
-                        ordered = ordered)
+  #Run layer 1 for each penalty and collect results in appropriately named df
+  MoreArgs <- list(dat = dat, dag.true = dag.true, ordered = ordered)
+  result.list <- mapply(experiment.layer1, penalty = penalties, 
+                        str.em = str.em.vec, MoreArgs = MoreArgs)
   result.df <- data.frame(penalties, matrix(unlist(result.list), byrow = TRUE,
                                             nrow = length(penalties)))
+  
+  #Copy results from single EM run to all penalties 
+  if(str.em) {result.df[, 5:7] <- result.df[1, 5:7]}
   
   names(result.df) <- c("penalty", "SHD.NAL", "QUE.NAL", "TIM.NAL", "SHD.SEM",
                         "QUE.SEM", "TIM.SEM")

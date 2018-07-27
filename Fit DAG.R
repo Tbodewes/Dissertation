@@ -795,8 +795,65 @@ fit.dag.ordered <- function(node.names, max.parents, dat, penalty,
 }
 
 
-#' Decide later whether to actually implement structural EM
-em.parametric <- function(dag, dat, max.iter = 5, particles = 100, debug = FALSE){
+#' Impute data in parallel using a fitted Bayesian Network
+#'
+#' Distributes a dataframe with missing values over all but one of the clusters
+#' on the current machine and uses likelihood weighted sampling from the
+#' mutilated network to impute missing values by their posterior mean
+#' (continuous) or mode (discrete).
+#'
+#' @param dag.fit Fitted Bayesian Network to use for data imputation
+#' @param dat Dataframe with missing values to impute
+#' @param particles Number of samples to use in simulation
+#'
+#' @return dat with missing values imputed
+#' @export
+#'
+#' @examples
+parImpute <- function(dag.fit, dat, particles){
+  #Initialize parallel cluster
+  no.cores <- detectCores() - 1
+  cl <- makeCluster(no.cores)
+  on.exit(stopCluster(cl))
+  invisible(clusterEvalQ(cl, library(bnlearn)))
+  
+  #Split dataframe into equal sized chunks
+  rownames(dat) <- 1:nrow(dat)
+  no.obs <- ceiling(nrow(dat)/no.cores)
+  dat.list <- split(dat, (as.numeric(rownames(dat))-1)%/%no.obs)
+  
+  #Impute in parallel and combine and return result
+  impute.list <- parLapply(cl, dat.list, impute, object = dag.fit, 
+                           method = "bayes-lw", n = particles)
+  imputed <- rbindlist(impute.list)
+  return(imputed)
+}
+
+
+#' Performs parametric EM for a given DAG
+#'
+#' Initializes by learning parameters using locally complete data, then imputes
+#' missing values (E-step) and refits parameters (M-step) a given number of
+#' times using likelihood weighted sampling. Allows setting a fixed maximum
+#' number of observations per parameter for computational reasons. These
+#' observations are randomly sampled from the full dataset.
+#'
+#' @param dag DAG structure to learn parameters for
+#' @param dat Dataframe with missing values to learn parameters from
+#' @param max.iter Maximum number of iterations (default is 1)
+#' @param particles Number of samples to use in simulation
+#' @param obs.perParam Number of observations per parameter to learn. Defaults
+#'   to full dataset
+#' @param parallel If TRUE, do data imputation in parallel
+#'
+#' @return DAG with fitted parameters and imputed data after last E-step
+#'
+#' @export
+#'
+#' @examples
+em.parametric <- function(dag, dat, max.iter = 1, particles = 500, 
+                          obs.perParam = NULL, parallel = FALSE){
+  #Initialize by fitting parameters using locally complete data
   if(class(dag)[1] != "bn.fit"){
     if(class(dag)[1] != "bn"){stop("DAG should be either of type bn or type bn.fit")}
     dag.fit <- bn.fit(dag, dat, replace.unidentifiable = TRUE)
@@ -804,37 +861,69 @@ em.parametric <- function(dag, dat, max.iter = 5, particles = 100, debug = FALSE
   else{
     dag.fit <- dag
   }
-  
+  dat.imputed <- NULL
   converged <- FALSE
   iteration <- 1
+  
+  #Take subsample of observations if desired
+  if(!is.null(obs.perParam)){
+    no.obs <- min(obs.perParam*nparams(dag.fit), nrow(dat))
+    dat <- sample_n(dat, size = no.obs)
+  }
+  
+  #Iterate until maximum number of iterations is reached
   while(!converged && iteration <= max.iter){
     iteration <- iteration + 1
-    dat.imputed <- impute(dag.fit, dat, method = "bayes-lw", n = particles,
-                          debug = debug)
+    
+    if(parallel){
+      dat.imputed <- parImpute(dag.fit, dat, particles = particles)
+    } else {
+      dat.imputed <- impute(dag.fit, dat, method = "bayes-lw", n = particles)
+    }
+    
     dag.fit <- bn.fit(dag, dat.imputed)
     #TODO: add criterion for convergence
   }
   
-  return(list(dag = dag.fit, dat = dat.imputed, iter = iteration))
+  return(list(dag = dag.fit, dat = dat.imputed))
 }
 
-em.structural <- function(dat, parallel = TRUE, tabuSteps = 10, penalty = "bic",
+#' Uses Structural EM to learn DAG structure from incomplete data
+#'
+#' Iteratively imputes data (E-step) and learns DAG structure from fitted data
+#' (M-step). Continuous until a maximum number of iterations is reached or the
+#' SHD between the new and the previous graph is zero.
+#'
+#' @param dat Incomplete dataframe to learn DAG from
+#' @param max.iter Maximum number of iterations
+#' @param penalty Penalization factor to use for scoring, default is "bic"
+#' @inheritParams fit.dag
+#'
+#' @return Fitted DAG
+#' @export
+#'
+#' @examples
+em.structural <- function(dat, tabuSteps = 10, penalty = "bic",
                           tabuLength = tabuSteps, blacklist = NULL, 
-                          whitelist = NULL, max.iter = Inf, debug = FALSE){
-  
+                          whitelist = NULL, max.iter = Inf, parallel = FALSE){
+  #Initialize to graph with only whitelisted edges and 
   dag.current <- initializeDag(names(dat), whitelist)
   dat.imputed <- dat
   fitted.current <- bn.fit(dag.current, dat.imputed)
   
   converged <- FALSE
-  iteration <- 0
+  iteration <- 1
   
-  while(!converged && iteration < max.iter){
+  while(!converged && iteration <= max.iter){
     iteration <- iteration + 1
     
     #E-step: fit parameters of current network using previously imputed data
     #and impute data based on new network
-    dat.imputed <- impute(fitted.current, dat, method = "bayes-lw")
+    if(parallel){
+      dat.imputed <- parImpute(dag.fit, dat, particles = particles)
+    } else {
+      dat.imputed <- impute(dag.fit, dat, method = "bayes-lw", n = particles)
+    }
     
     #M-step: optimize using completed data
     dag.new <- fit.dag(dat.imputed, penalty = penalty,
@@ -845,17 +934,14 @@ em.structural <- function(dat, parallel = TRUE, tabuSteps = 10, penalty = "bic",
                        whitelist = whitelist,
                        dag.start = dag.current)
     
+    #Use Bayesian fitting if all data is discrete to avoid unidentiability.
+    #If continuous data is also present, use MLE
+    
     if(all(sapply(dat, is.factor))){
       fitted.new <- bn.fit(dag.new, dat.imputed, method = "bayes", iss = 1)
     }
     else{
       fitted.new <- bn.fit(dag.new, dat.imputed, replace.unidentifiable = TRUE)
-    }
-    
-    if(debug)
-    {
-      cat("Iteration: ", iteration, "; SHD: ", shd(dag.current, dag.new), "\n",
-          sep = "")
     }
     
     if(shd(dag.current, dag.new) == 0){converged <- TRUE}
@@ -866,11 +952,28 @@ em.structural <- function(dat, parallel = TRUE, tabuSteps = 10, penalty = "bic",
 }
 
 
-bootstrap.dag <- function(dat, penalty, tabuSteps = 10, tabuLength = tabuSteps, 
-                          blacklist = NULL, whitelist = NULL, samples = 10, 
+#' Learns DAGs using the non-parametric bootstrap
+#'
+#' Repeatedly sample with replacement from original dataset and learn DAGs from
+#' these samples. 
+#'
+#' @param samples Number of DAGs to learn
+#' @param dat Data to obtain bootstrap samples from
+#' @param sampleSize Number of observations to sample. Default is nrow(dat)
+#' @param parallel Bootstrap in parallel if TRUE (default)
+#' @inheritParams fit.dag
+#'
+#' @return List of bn objects learned from bootstrap samples
+#' @export
+#'
+#' @examples
+bootstrap.dag <- function(samples, dat, penalty, 
+                          tabuSteps = 10, tabuLength = tabuSteps, 
+                          blacklist = NULL, whitelist = NULL,  
                           sampleSize = nrow(dat), parallel = FALSE){
   require(dplyr)
   
+  #Obtains bootstrap sample and learns and returns DAG
   bootstrap.single <- function(dummy, dat, penalty, tabuSteps, tabuLength,
                                blacklist, whitelist, sampleSize){
     dat.sample <- sample_n(dat, sampleSize, replace = TRUE)
@@ -883,17 +986,18 @@ bootstrap.dag <- function(dat, penalty, tabuSteps = 10, tabuLength = tabuSteps,
     return(dag.fitted)
   }
   
+  #Run in parallel if requested
   if(parallel){
-  cl <- initializeCluster(dat)
-  on.exit(stopCluster(cl))
-  dag.samples <- parLapplyLB(cl, 1:samples, bootstrap.single, dat = dat, 
-                           penalty = penalty,
-                           tabuSteps = tabuSteps,
-                           tabuLength = tabuLength,
-                           blacklist = blacklist,
-                           whitelist = whitelist,
-                           sampleSize = sampleSize) 
-  #Does this prevent repeated exporting?
+    
+    cl <- initializeCluster(dat)
+    on.exit(stopCluster(cl))
+    dag.samples <- parLapplyLB(cl, 1:samples, bootstrap.single, dat = dat, 
+                               penalty = penalty,
+                               tabuSteps = tabuSteps,
+                               tabuLength = tabuLength,
+                               blacklist = blacklist,
+                               whitelist = whitelist,
+                               sampleSize = sampleSize) 
   } else {
     dag.samples <- lapply(1:samples, bootstrap.single, dat = dat, 
                           penalty = penalty,

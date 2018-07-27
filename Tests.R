@@ -2,14 +2,22 @@ invisible(lapply(c("Scoring.R", "Fit DAG.R", "Experiments.R"), source))
 library(profvis)
 
 
+debug(experiment.layer1)
+experiment.full(dag.vec = dag.vec[2], 
+                dag.names = dag.names[2],
+                dat.vec = dat.vec[2],
+                k.vec = 250,  beta.vec = 0.2,
+                replications = replications,
+                penalties = c("0.25"), str.em = FALSE,
+                parallel = FALSE, ordered = FALSE)
 
-experiment.full(dag.vec = dag.vec.pruned[1], 
+experiment.full(dag.vec = dag.vec[1], 
                 dag.names = dag.names[1],
                 dat.vec = dat.vec[1],
-                k.vec = 500,  beta.vec = 0,
+                k.vec = 100,  beta.vec = 0.1,
                 replications = replications,
-                penalties = penalties, str.em = FALSE,
-                parallel = FALSE, ordered = TRUE)
+                penalties = c("0.25"), str.em = TRUE,
+                parallel = FALSE, ordered = FALSE)
 
 
 #' **Test scoring function and local search for discrete data**
@@ -354,6 +362,9 @@ experiment.layer2(dat = discrete.miss, dag.true = dag.discrete,
 experiment.layer2(dat = discrete.miss, dag.true = dag.discrete,
                   penalties = penalties, str.em = FALSE, ordered = TRUE)
 
+experiment.layer2(dat = discrete.miss, dag.true = dag.discrete,
+                  penalties = penalties, str.em = TRUE, ordered = FALSE)
+
 #' * Layer 3 *
 
 #' Test serial implementation
@@ -406,9 +417,14 @@ dag.name <- "discrete"
 
 experiment.layer4(dag.true = dag.discrete, dat.true = dat.discrete, 
                   dag.name = dag.name, k.vec = k.vec, beta.vec = beta.vec, 
-                  replications = replications, penalties = penalties, 
+                  replications = 2, penalties = penalties, 
                   str.em = FALSE, cl = cl, ordered = FALSE)
 #Works as desired
+
+experiment.layer4(dag.true = dag.discrete, dat.true = dat.discrete, 
+                  dag.name = dag.name, k.vec = k.vec, beta.vec = beta.vec, 
+                  replications = 2, penalties = penalties, 
+                  str.em = TRUE, cl = cl, ordered = FALSE)
 
 #' * Full experiment *
 dag.names <- c("discrete", "gaussian")
@@ -418,10 +434,11 @@ dag.vec <- list(dag.discrete, dag.gauss)
 dat.vec <- list(dat.discrete, dat.gauss)
 
 result.df <- experiment.full(dag.vec = dag.vec, dat.vec = dat.vec, 
-                dag.names = dag.names, k.vec = k.vec, beta.vec = beta.vec, 
-                replications = replications, penalties = penalties, 
-                str.em = FALSE, parallel = TRUE, ordered = FALSE)
+                             dag.names = dag.names, k.vec = k.vec, beta.vec = beta.vec, 
+                             replications = replications, penalties = penalties, 
+                             str.em = FALSE, parallel = TRUE, ordered = FALSE)
 
+stopCluster(cl)
 #' * Test network pruning *
 
 #' Works as desired, results in graph with at most 3 parents for each node
@@ -470,26 +487,24 @@ shd(alarm.em, dag.alarm)
 shd(alarm.em.inbuilt, dag.alarm)
 
 
+#' ** Test MEHRA functions **
 
+bootSamples10 <- readRDS("bootSamples10.rds")
+mehra.daily <- readRDS("mehra_daily.RDS")
 
+training <- filter(mehra.daily, Year <= 2004)
+validation <- filter(mehra.daily, between(Year, 2005, 2006))
+testing <- filter(mehra.daily, Year > 2006)
 
+debug(fit.boot)
+boot10.fit <- fit.boot(bootSamples10, 0.75, training, particles = 100, 
+                       obs.perParam = 10, parallel = TRUE)
 
-#' ** Experimenting with analyzing results from computational experiments **
-library(dplyr)
-library(ggplot2)
+debug(computePredictions)
+pred.CVD <- computePredictions("CVD60", sample_n(validation, 1e5), boot10.fit, parallel = TRUE)
 
-group_by(result.df, dag, k, beta, penalty) %>% 
-  summarise(shd = mean(SHD.NAL), sdev = sd(SHD.NAL), lb = quantile(SHD.NAL, 0.10),
-            ub = quantile(SHD.NAL, 0.90)) %>%
-  ggplot(aes(x = k, y = shd)) + facet_grid(dag ~ beta) + geom_line(aes(linetype = penalty))
+computeRMSE(pred.CVD)
 
-#' ** Test externally received networks **
-
-load("tuscania-bn.Rdata")
-grapes.fit <- G.fit
-
-experiment.layer3(dag.true = grapes.fit, k = 100, beta = 0.2, replications = 3, 
-                  penalties = penalties, str.em = FALSE, cl = cl,
-                  ordered = FALSE)
-
-stopCluster(cl)
+debug(validate)
+system.time(RMSE.av <- validate(0.75, bootSamples10, penalty = "0.10", training, validation, 
+                                particles = 10, obs.perParam = 10))

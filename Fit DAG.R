@@ -905,7 +905,8 @@ em.parametric <- function(dag, dat, max.iter = 1, particles = 500,
 #' @examples
 em.structural <- function(dat, tabuSteps = 10, penalty = "bic",
                           tabuLength = tabuSteps, blacklist = NULL, 
-                          whitelist = NULL, max.iter = Inf, parallel = FALSE){
+                          whitelist = NULL, max.iter = Inf, particles = 500,
+                          parallel = FALSE){
   #Initialize to graph with only whitelisted edges and 
   dag.current <- initializeDag(names(dat), whitelist)
   dat.imputed <- dat
@@ -920,9 +921,9 @@ em.structural <- function(dat, tabuSteps = 10, penalty = "bic",
     #E-step: fit parameters of current network using previously imputed data
     #and impute data based on new network
     if(parallel){
-      dat.imputed <- parImpute(dag.fit, dat, particles = particles)
+      dat.imputed <- parImpute(fitted.current, dat, particles = particles)
     } else {
-      dat.imputed <- impute(dag.fit, dat, method = "bayes-lw", n = particles)
+      dat.imputed <- impute(fitted.current, dat, method = "bayes-lw", n = particles)
     }
     
     #M-step: optimize using completed data

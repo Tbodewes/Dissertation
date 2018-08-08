@@ -23,6 +23,19 @@ fit.boot <- function(samples, threshold, dat, particles, obs.perParam,
   strength <- custom.strength(samples, names(dat))
   dag <- averaged.network(strength, names(dat), threshold)
   
+  #Direct undirected arcs using CGN assumptions 
+  undir <- undirected.arcs(dag)
+  if(nrow(undir) > 0){
+    for(i in 1:nrow(undir)){
+      from <- undir[i, 1]
+      to <- undir[i, 2]
+      if(is.factor(dat[[from]]) && is.numeric(dat[[to]])){
+        dag <- set.arc(dag, from, to)
+      }
+    }
+  }
+  if(nrow(undirected.arcs(dag)) > 0){stop("Graph is not fully directed")}
+  
   #Learn parameters in a single iteration of parametric EM
   dag.fit <- em.parametric(dag, dat, max.iter = max.iter, particles = particles,
                            obs.perParam = obs.perParam, parallel = parallel)$dag
@@ -57,6 +70,7 @@ fit.boot <- function(samples, threshold, dat, particles, obs.perParam,
 computePredictions <- function(varName, dat, dag.fit, train = FALSE, 
                                particles = 100, parallel = FALSE){
   colNum <- which(names(dat) == varName)
+  cat("Predicting", varName, fill = TRUE)
   
   if(train){
     fits <- dag.fit[[colNum]]$fitted.values
@@ -99,8 +113,8 @@ computeRMSE <- function(pred){
   fits <- pred$fits
   actuals <- pred$actuals
   
-  RMSE <- sqrt(mean((fits - actuals)^2))
-  normRMSE <- RMSE/(max(actuals) - min(actuals))
+  RMSE <- sqrt(mean((fits - actuals)^2, na.rm = TRUE))
+  normRMSE <- RMSE/(max(actuals, na.rm = TRUE) - min(actuals, na.rm = TRUE))
   return(normRMSE)
 }
 

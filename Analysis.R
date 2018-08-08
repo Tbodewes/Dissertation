@@ -26,7 +26,7 @@ dat.vec <- list(NULL, NULL, NULL)
 dag.names <- list("Alarm", "Ecoli", "Sangiovese")
 k.vec <- c(10, 50, 100, 250, 500, 1000)
 beta.vec <- c(0, 0.05, 0.1, 0.2)
-replications <- 10
+replications <- 20
 penalties <- c("0.10", "0.25", "0.40", "0.60", "bic", "aic")
 
 penalties.em <-  c("0.10", "0.25", "0.40")
@@ -208,7 +208,7 @@ saveRDS(result.unordered.sangiovese, file = "Result_unordered_sangiovese.RDS")
 system.time(result.em.alarm0.05 <- experiment.full(dag.vec = dag.vec[1], 
                                                   dag.names = dag.names[1],
                                                   dat.vec = dat.vec[1],
-                                                  k.vec = k.vec,  beta.vec = beta.vec[2],
+                                                  k.vec = k.vec.em,  beta.vec = beta.vec[2],
                                                   replications = replications,
                                                   penalties = penalties.em, str.em = TRUE,
                                                   parallel = TRUE, ordered = FALSE))
@@ -217,7 +217,7 @@ saveRDS(result.em.alarm0.05, file = "Result_em_alarm05.RDS")
 system.time(result.em.alarm0.1 <- experiment.full(dag.vec = dag.vec[1], 
                                                   dag.names = dag.names[1],
                                                   dat.vec = dat.vec[1],
-                                                  k.vec = k.vec,  beta.vec = beta.vec[3],
+                                                  k.vec = k.vec.em,  beta.vec = beta.vec[3],
                                                   replications = replications,
                                                   penalties = penalties.em, str.em = TRUE,
                                                   parallel = TRUE, ordered = FALSE))
@@ -226,7 +226,7 @@ saveRDS(result.em.alarm0.1, file = "Result_em_alarm1.RDS")
 system.time(result.em.alarm0.2 <- experiment.full(dag.vec = dag.vec[1], 
                                                   dag.names = dag.names[1],
                                                   dat.vec = dat.vec[1],
-                                                  k.vec = k.vec,  beta.vec = beta.vec[4],
+                                                  k.vec = k.vec.em,  beta.vec = beta.vec[4],
                                                   replications = replications,
                                                   penalties = penalties.em, str.em = TRUE,
                                                   parallel = TRUE, ordered = FALSE))
@@ -246,7 +246,7 @@ saveRDS(result.em.ecoli, file = "Result_em_ecoli.RDS")
 system.time(result.em.ecoli0.05 <- experiment.full(dag.vec = dag.vec[2], 
                                                           dag.names = dag.names[2],
                                                           dat.vec = dat.vec[2],
-                                                          k.vec = k.vec,  beta.vec = beta.vec[2],
+                                                          k.vec = k.vec.em,  beta.vec = beta.vec[2],
                                                           replications = replications,
                                                           penalties = penalties.em, str.em = TRUE,
                                                           parallel = TRUE, ordered = FALSE))
@@ -255,7 +255,7 @@ saveRDS(result.em.ecoli0.05, file = "Result_em_ecoli05.RDS")
 system.time(result.em.ecoli0.1 <- experiment.full(dag.vec = dag.vec[2], 
                                                          dag.names = dag.names[2],
                                                          dat.vec = dat.vec[2],
-                                                         k.vec = k.vec,  beta.vec = beta.vec[3],
+                                                         k.vec = k.vec.em,  beta.vec = beta.vec[3],
                                                          replications = replications,
                                                          penalties = penalties.em, str.em = TRUE,
                                                          parallel = TRUE, ordered = FALSE))
@@ -264,7 +264,7 @@ saveRDS(result.em.ecoli0.1, file = "Result_em_ecoli1.RDS")
 system.time(result.em.ecoli0.2 <- experiment.full(dag.vec = dag.vec[2], 
                                                          dag.names = dag.names[2],
                                                          dat.vec = dat.vec[2],
-                                                         k.vec = k.vec,  beta.vec = beta.vec[4],
+                                                         k.vec = k.vec.em,  beta.vec = beta.vec[4],
                                                          replications = replications,
                                                          penalties = penalties.em, str.em = TRUE,
                                                          parallel = TRUE, ordered = FALSE))
@@ -282,7 +282,7 @@ system.time(result.em.sangiovese <- experiment.full(dag.vec = dag.vec[3],
                                     replications = replications, 
                                     penalties = penalties.em, str.em = TRUE,
                                     parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.sangiovese, file = "Result_em_sangiovese.RDS")
+saveRDS(result.em.sangiovese, file = "Result_em_sangiovese_second.RDS")
 
 
 #' Aggregate results
@@ -306,6 +306,15 @@ result.unordered.ecoli <- rbind(result.unordered.ecoli0, result.unordered.ecoli0
                                 result.unordered.ecoli0.1, result.unordered.ecoli0.2)
 
 saveRDS(result.unordered.ecoli, file = "Result_unordered_ecoli_first.RDS")
+
+
+result.em.alarm0.05 <- readRDS("Result_em_alarm05.RDS")
+result.em.alarm0.1 <- readRDS("Result_em_alarm1.RDS")
+result.em.alarm0.2 <- readRDS("Result_em_alarm2.RDS")
+
+result.em.alarm <- rbind(result.em.alarm0.05, result.em.alarm0.1, result.em.alarm0.2)
+
+saveRDS(result.em.alarm, file = "Result_em_alarm.RDS")
 
 
 result.em.ecoli0.05 <- readRDS("Result_em_ecoli05.RDS")
@@ -344,120 +353,43 @@ result.em <- rbind(result.em.alarm, result.em.ecoli,
 saveRDS(result.em, file = "Result_em.RDS")
 
 
-result.ordered <- readRDS("Result_ordered_first.RDS")
+result.ordered <- readRDS("Result_ordered.RDS")
+result.unordered <- readRDS("Result_unordered.RDS")
 
 
-levels(result.ordered$penalty)[1] <- "0.10"
-levels(result.unordered$penalty)[1] <- "0.10"
+#' Check that we have 20 replications for all configurations
+result.ordered %>% group_by(dag, k, beta, penalty) %>%
+  summarize(count = n()) %>% 
+  filter(count != 20)
+
+result.unordered %>% group_by(dag, k, beta, penalty) %>%
+  summarize(count = n()) %>% 
+  filter(count != 20)
 
 #' Plot results
 
-
-pdf("Graph_ordered.pdf", height = 6, width = 8)
+pdf("Graph_ordered.pdf", height = 6, width = 7.5)
 result.ordered %>% filter(beta != 0.4)  %>% group_by(dag, k, beta, penalty) %>% 
   summarize(SHD.av = mean(SHD.NAL), se = sd(SHD.NAL)/n(), 
             lb = quantile(SHD.NAL, 0.25), ub = quantile(SHD.NAL, 0.75)) %>%
   ggplot(aes(k, SHD.av)) +
   geom_line(aes(colour = penalty, linetype = penalty)) +
   geom_point(aes(colour = penalty), size = 1) +
-  #geom_errorbar(aes(ymin = SHD.av - 2*se, ymax = SHD.av + 2*se, 
-  #                  colour = penalty, width = .1)) +
-  #geom_errorbar(aes(ymin = lb, ymax = ub, 
-  #                  colour = penalty, width = .1)) +
   facet_grid(dag~beta, labeller = label_both) +
   labs(x = "Relative sample size (k)", y = "Scaled SHD") +
-  ggtitle("Results for known node order") +
-  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4)
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
+  ggtitle("Accuracy of NAL optimization for known node order",
+          subtitle = paste("NAL scoring often gives better results for incomplete data if",
+                           "a penalization factor under 0.5 is used")) +
+  theme(plot.title = element_text(size = 12, face = "bold"), 
+        plot.subtitle = element_text(size = 10, face = "italic"))
 dev.off()
-
-pdf(file = "Graph_unordered.pdf", height = 6, width = 8)
-result.unordered %>% filter(beta != 0.4) %>% group_by(dag, k, beta, penalty) %>% 
-  summarize(SHD.av = mean(SHD.NAL)) %>%
-  ggplot(aes(k, SHD.av)) + 
-  geom_line(aes(colour = penalty, linetype = penalty)) +
-  geom_point(aes(colour = penalty), size = 1) +
-  facet_grid(dag~beta, scales = "free_y", labeller = label_both) +
-  labs(x = "Relative sample size (k)", y = "Scaled SHD") +
-  ggtitle("Results for unknown node order") +
-  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4)
-dev.off()
-
-
-
-
-result.em <- readRDS("Result_em.RDS")
-names(result.em) <- c("dag", "k", "beta", "penalty", "SHD.NAL", "QUE.NAL", "TIM.NAL", "SHD.SEM",
-                      "QUE.SEM", "TIM.SEM")
-
-#Count number of successful replications for each case 
-View(result.em %>% na.omit %>%
-  group_by(dag, k, beta, penalty) %>%
-  summarise(count = n()))
-
-result.em.cast <- result.em %>% 
-  mutate(id = row_number()) %>%
-  melt(id.vars = c("dag", "k", "beta", "penalty", "id")) %>%
-  mutate(variable = as.character(variable),
-         metric = as.factor(substr(variable, 1, 3)), 
-         method = as.factor(substr(variable, 5, 7))) %>%
-  select(-variable)
-
-result.em.tidy <- na.omit(spread(result.em.cast, key = method, value = value)) %>%
-  mutate(ratio = NAL/SEM) %>% group_by(dag, k, beta, penalty, metric) %>%
-  summarise(ratio.av = mean(ratio), se = sd(ratio)/n(), lb = ratio.av - 2*se,
-            ub = ratio.av + 2*se)
-
-emplot.height <- 4.5
-emplot.width <- 7.5
-
-pdf("Graph_EM_SHD.pdf", height = emplot.height, width = emplot.width) 
-filter(result.em.tidy, metric == "SHD") %>% 
-  ggplot(aes(k, ratio.av)) +
-  geom_line(aes(color = penalty)) + 
-  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
-  geom_point() +
-  geom_errorbar(aes(ymin = lb, ymax = ub,
-                    width = 4)) +
-  labs(x = "Relative sample size (k)", y = "SHD of NAL / SHD of S-EM") +
-  ggtitle("SHD comparison of NAL and Structural EM") + 
-  geom_hline(yintercept = 1, linetype = 2)+
-  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4)
-dev.off()
-
-
-pdf("Graph_EM_Q.pdf", height = emplot.height, width = emplot.width) 
-filter(result.em.tidy, metric == "QUE", beta != 0.4) %>% 
-  ggplot(aes(k, ratio.av)) +
-  geom_line(aes(color = penalty)) + 
-  facet_grid(dag ~ beta, scale = "free_y",labeller = label_both) +
-  geom_point() +
-  geom_errorbar(aes(ymin = lb, ymax = ub,
-                    width = 4)) +
-  labs(x = "Relative sample size (k)", y = "Queries of NAL / queries of S-EM") +
-  ggtitle("Computational cost comparison of NAL and Structural EM") + 
-  geom_hline(yintercept = 1, linetype = 2)+
-  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4)
-dev.off()
-
-pdf("Graph_EM_T.pdf", height = emplot.height, width = emplot.width) 
-filter(result.em.tidy, metric == "TIM", beta != 0.4) %>% 
-  ggplot(aes(k, ratio.av)) +
-  geom_line(aes(color = penalty)) + 
-  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
-  geom_point() +
-  geom_errorbar(aes(ymin = lb, ymax = ub,
-                    width = 4)) +
-  labs(x = "Relative sample size (k)", y = "Time of NAL / time of S-EM") + 
-  geom_hline(yintercept = 1, linetype = 2)+
-  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4)
-dev.off()
-
 
 
 computePenalizations <- function(n.vec, penalty.vec, no.nodes = 30){
   
   singlePenalty <- function(n, penalty, no.nodes){
-
+    
     bic = F
     aic = F
     alpha = NULL
@@ -483,19 +415,132 @@ computePenalizations <- function(n.vec, penalty.vec, no.nodes = 30){
   return(result)
 }
 
+penalties <- c("0.10", "0.25", "0.40", "0.60", "bic", "aic")
 penalizations <- computePenalizations(seq(1000, 1000000, 1000), penalties, 30)
 
-pdf("penalizationRates.pdf", height = 3, width = 8)
+pdf("penalizationRates.pdf", height = 2.5, width = 7)
 ggplot(penalizations, (aes(x = n, y = output))) +
   geom_line(aes(colour = penalty, linetype = penalty)) + 
   scale_y_log10() +
   labs(title = paste("Penalization rate behaviour"),
        x = "Sample size (x1000)",
-       y = expression(lambda[n])) +
-  scale_x_continuous(labels = function(x){x/1000})
+       y = expression(paste(lambda[n], " (log-scale)"))) +
+  scale_x_continuous(labels = function(x){x/1000}) +
+  ggtitle("Penalization rate behaviour",
+          subtitle = paste("Penalization rates of the form  n^(-alpha) go to zero very", 
+                           "slowly for small alpha")) +
+  theme(plot.title = element_text(size = 12, face = "bold"), 
+        plot.subtitle = element_text(size = 10, face = "italic"))
 dev.off()
 
-head(penalizations)
+
+pdf(file = "Graph_unordered.pdf", height = 6, width = 7.5)
+result.unordered %>% filter(beta != 0.4) %>% group_by(dag, k, beta, penalty) %>% 
+  summarize(SHD.av = mean(SHD.NAL)) %>%
+  ggplot(aes(k, SHD.av)) + 
+  geom_line(aes(colour = penalty, linetype = penalty)) +
+  geom_point(aes(colour = penalty), size = 1) +
+  facet_grid(dag~beta, scales = "free_y", labeller = label_both) +
+  labs(x = "Relative sample size (k)", y = "Scaled SHD") +
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
+  theme(plot.title = element_text(size = 12, face = "italic")) +
+  ggtitle("Accuracy of NAL optimization for unknown node order",
+          subtitle = paste("NAL optimization for unknown node order tends to perform best", 
+                           "with penalization rates under 0.25")) +
+  theme(plot.title = element_text(size = 12, face = "bold"), 
+        plot.subtitle = element_text(size = 10, face = "italic"))
+dev.off()
+
+
+pdf(file = "Que_unordered.pdf", height = 6, width = 7.5)
+result.unordered %>% filter(beta != 0.4) %>% group_by(dag, k, beta, penalty) %>% 
+  summarize(QUE.av = mean(QUE.NAL)) %>%
+  ggplot(aes(k, QUE.av)) + 
+  geom_line(aes(colour = penalty, linetype = penalty)) +
+  geom_point(aes(colour = penalty), size = 1) +
+  facet_grid(dag~beta, scales = "free_y", labeller = label_both) +
+  labs(x = "Relative sample size (k)", y = "Number of queries") +
+  ggtitle("Computational cost of NAL optimization for unknown node order",
+          subtitle = "NAL optimization tends to converge faster for harsher penalization") +
+  theme(plot.title = element_text(size = 12, face = "bold"), 
+        plot.subtitle = element_text(size = 10, face = "italic"))
+dev.off()
+
+
+result.em <- readRDS("Result_em.RDS")
+
+#Count number of successful replications for each case 
+View(result.em %>% na.omit %>%
+  group_by(dag, k, beta, penalty) %>%
+  summarise(count = n()))
+
+result.em.cast <- result.em %>% 
+  mutate(id = row_number()) %>%
+  melt(id.vars = c("dag", "k", "beta", "penalty", "id")) %>%
+  mutate(variable = as.character(variable),
+         metric = as.factor(substr(variable, 1, 3)), 
+         method = as.factor(substr(variable, 5, 7))) %>%
+  select(-variable)
+
+result.em.tidy <- na.omit(spread(result.em.cast, key = method, value = value)) %>%
+  mutate(ratio = NAL/SEM) %>% group_by(dag, k, beta, penalty, metric) %>%
+  summarise(ratio.av = mean(ratio), se = sd(ratio)/n(), lb = ratio.av - 2*se,
+            ub = ratio.av + 2*se)
+
+emplot.height <- 4.5
+emplot.width <- 7.5
+
+pdf("Graph_EM_SHD.pdf", height = emplot.height, width = emplot.width) 
+filter(result.em.tidy, metric == "SHD") %>% 
+  ggplot(aes(k, ratio.av)) +
+  geom_line(aes(color = penalty, linetype = penalty)) + 
+  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
+  geom_point(aes(color = penalty)) +
+  labs(x = "Relative sample size (k)", y = "SHD of NAL / SHD of S-EM") + 
+  geom_hline(yintercept = 1, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
+  ggtitle("Ratio of SHD of NAL optimization to SHD of Structural EM",
+          subtitle = paste("NAL optimization with appropriate penalization", 
+                           "learns graphs of similar quality as Structural EM")) +
+  theme(plot.title = element_text(size = 12, face = "bold"), 
+        plot.subtitle = element_text(size = 10, face = "italic")) +
+  scale_color_manual(values = hue_pal()(6)[1:3])
+dev.off()
+
+
+pdf("Graph_EM_Q.pdf", height = emplot.height, width = emplot.width) 
+filter(result.em.tidy, metric == "QUE", beta != 0.4) %>% 
+  ggplot(aes(k, ratio.av)) +
+  geom_line(aes(color = penalty, linetype = penalty)) + 
+  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
+  geom_point(aes(color = penalty)) +
+  labs(x = "Relative sample size (k)", y = "Queries of NAL / queries of S-EM") + 
+  geom_hline(yintercept = 1, linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
+  ggtitle("Ratio of no. of queries for NAL optimization to no. of queries for Structural EM",
+          subtitle = "NAL optimization tends to converge in fewer queries than Structural EM") +
+  theme(plot.title = element_text(size = 12, face = "bold"), 
+        plot.subtitle = element_text(size = 10, face = "italic")) +
+  scale_color_manual(values = hue_pal()(6)[1:3])
+dev.off()
+
+pdf("Graph_EM_T.pdf", height = emplot.height, width = emplot.width) 
+filter(result.em.tidy, metric == "TIM", beta != 0.4) %>% 
+  ggplot(aes(k, ratio.av)) +
+  geom_line(aes(color = penalty, linetype = penalty)) + 
+  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
+  geom_point(aes(color = penalty)) +
+  labs(x = "Relative sample size (k)", y = "Time of NAL / time of S-EM") +
+  geom_hline(yintercept = 1, linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
+  ggtitle("Ratio of running time of NAL optimization to running time of Structural EM",
+          subtitle = "NAL optimization tends to be much faster than Structural EM") +
+  theme(plot.title = element_text(size = 12, face = "bold"), 
+        plot.subtitle = element_text(size = 10, face = "italic")) +
+  scale_color_manual(values = hue_pal()(6)[1:3])
+dev.off()
+
+
 
 
 # Phenotype graph

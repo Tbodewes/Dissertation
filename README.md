@@ -1,11 +1,17 @@
 # Dissertation
-R code for dissertation on Bayesian network structure learning under missing data using node-average likelihood
+Bayesian network structure learning from incomplete data using Node-Average Likelihood
+R code and experimental results
 
-Key files:
-- Analysis.R: code for running computational experiments and processing results
-- Experiments.R: functions for computational experiments, analyzing SHD from learned graph to true graph and number of queries used in learning, for ordered fitting, general fitting and structural EM. Runs for a set of graphs, a set of sample sizes and a set of missingness probabilities.
-- Fit DAG.R: implements local search algorithms for determining a locally optimal CGN for given data and an exact algorithm for when the node order is known and the maximum number of parents is restricted (unsuited for large networks)
-- MEHRA analysis.R: script for analysis of MEHRA dataset
-- MEHRA functions.R: supporting functions for analysis of MEHRA dataset
-- Scoring.R: implements node-average likelihood (see Balov, 2013) for conditional Gaussian networks (CGN) and related score functions
-- Tests.R: unit tests
+R code:
+- Scoring.R: Implements NAL scoring.
+- Fit DAG.R: Implements algorithms for fitting with known and unknown ordering. Also implements parametric and structural EM and a function for bootstrapping DAGs.
+- Experiments.R: Implements functions necessary to run computational experiments.
+- Analysis.R: Code to configures and run experiments and process results.
+- MEHRA functions.R: Implements functions necessary for MEHRA analysis.
+- MEHRA analysis.R: Script for MEHRA analysis.
+- Tests.R: Integration tests for key functions.
+
+Experimental results:
+- Result_ordered.RDS: results for experiment with known node ordering
+- Result_unordered.RDS: results for experiment with unknown node ordering
+- Result_em.RDS: results for comparison of NAL and Structural EM

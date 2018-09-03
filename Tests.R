@@ -1,25 +1,6 @@
 invisible(lapply(c("Scoring.R", "Fit DAG.R", "Experiments.R"), source))
 library(profvis)
 
-
-debug(experiment.layer1)
-experiment.full(dag.vec = dag.vec[2], 
-                dag.names = dag.names[2],
-                dat.vec = dat.vec[2],
-                k.vec = 250,  beta.vec = 0.2,
-                replications = replications,
-                penalties = c("0.25"), str.em = FALSE,
-                parallel = FALSE, ordered = FALSE)
-
-experiment.full(dag.vec = dag.vec[1], 
-                dag.names = dag.names[1],
-                dat.vec = dat.vec[1],
-                k.vec = 100,  beta.vec = 0.1,
-                replications = replications,
-                penalties = c("0.25"), str.em = TRUE,
-                parallel = FALSE, ordered = FALSE)
-
-
 #' **Test scoring function and local search for discrete data**
 dat.discrete <- learning.test
 dag.discrete <- model2network("[A][C][F][B|A][D|A:C][E|B:F]")
@@ -178,8 +159,8 @@ AIC(dag.mix, dat.mix)/nrow(dat.mix)
 mix.fitted <- fit.dag(dat.mix, "bic", parallel = FALSE)
 graphviz.compare(cpdag(mix.fitted), cpdag(dag.mix))
 
-#' ** Tests dag fitting for known node order and restricted parental set size **
 
+#' ** Tests dag fitting for known node order and restricted parental set size **
 #' Ordered fitting algorithm finds precisely the right DAG in small case
 nodes.ordered <- node.ordering(dag.mix)
 order.fitted <- fit.dag.ordered(nodes.ordered, max.parents = 4, dat.mix, "bic")
@@ -204,23 +185,6 @@ computeScore.node("CCHL", alarm.order.fitted, dat.alarm, "bic")
 computeScore.node("HYP", dag.alarm, dat.alarm, "bic")
 computeScore.node("HYP", alarm.order.fitted, dat.alarm, "bic")
 
-#Test ordered fitting of sangiovese graph
-debug(experiment.layer1)
-experiment.full(dag.vec = dag.vec.pruned[3], 
-                dag.names = dag.names[3],
-                dat.vec = dat.vec[3],
-                k.vec = 100,  beta.vec = 0,
-                replications = 1,
-                penalties = "bic", str.em = FALSE,
-                parallel = FALSE, ordered = TRUE)
-
-experiment.full(dag.vec = list(ecoli.pruned), 
-                dag.names = dag.names[2],
-                dat.vec = dat.vec[2],
-                k.vec = 200,  beta.vec = 0,
-                replications = 1,
-                penalties = "bic", str.em = FALSE,
-                parallel = FALSE, ordered = TRUE)
 
 #' ** Test white- and blacklisting **
 
@@ -447,8 +411,8 @@ graphviz.compare(dag.grapes, pruneNetwork(dag.grapes, 3))
 
 pruneFit(grapes.fit, max.parents = 3)
 
-#' ** Test parametric and structural EM **
 
+#' ** Test parametric and structural EM **
 #' Test parametric EM by comparing it to complete data case
 library(profvis)
 bn.fit(dag.discrete, dat.discrete)
@@ -469,7 +433,6 @@ graphviz.compare(dag.em.inbuilt, dag.discrete)
 
 dag.em$learning$ntests
 dag.em.inbuilt$learning$ntests
-#' Custom implementation has significantly fewer queries, unclear why exactly
 
 
 n <- dim(dat.alarm)[1]
@@ -496,15 +459,12 @@ training <- filter(mehra.daily, Year <= 2004)
 validation <- filter(mehra.daily, between(Year, 2005, 2006))
 testing <- filter(mehra.daily, Year > 2006)
 
-debug(fit.boot)
 boot10.fit <- fit.boot(bootSamples10, 0.75, training, particles = 100, 
                        obs.perParam = 10, parallel = TRUE)
 
-debug(computePredictions)
 pred.CVD <- computePredictions("CVD60", sample_n(validation, 1e5), boot10.fit, parallel = TRUE)
 
 computeRMSE(pred.CVD)
 
-debug(validate)
 system.time(RMSE.av <- validate(0.75, bootSamples10, penalty = "0.10", training, validation, 
                                 particles = 10, obs.perParam = 10))

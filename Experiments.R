@@ -43,8 +43,6 @@ library(dplyr)
 #'   and for EM, in that order
 #'
 #' @export
-#'
-#' @examples
 experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
   
   #Fit DAG either using ordered or general fitting
@@ -101,8 +99,6 @@ experiment.layer1 <- function(dat, dag.true, penalty, str.em, ordered){
 #'   rows
 #'
 #' @export
-#'
-#' @examples
 experiment.layer2 <- function(dat, dag.true, penalties, str.em, ordered){
   
   #Structural EM always uses BIC and should be run only once
@@ -146,8 +142,6 @@ experiment.layer2 <- function(dat, dag.true, penalties, str.em, ordered){
 #'   penalty
 #'
 #' @export
-#'
-#' @examples
 experiment.layer3 <- function(dag.true, dat.true = NULL, k, beta, 
                               replications, penalties, str.em,
                               cl = NULL, ordered){
@@ -218,8 +212,6 @@ experiment.layer3 <- function(dag.true, dat.true = NULL, k, beta,
 #' @return long dataframe with output from layer 3 for each combination of k and
 #'   beta, marked by a column k and a column beta
 #' @export
-#'
-#' @examples
 experiment.layer4 <- function(dag.true, dat.true = NULL, dag.name, k.vec,  
                               beta.vec, replications, penalties, str.em, 
                               cl, ordered){
@@ -259,8 +251,6 @@ experiment.layer4 <- function(dag.true, dat.true = NULL, dag.name, k.vec,
 #'   running time for NAL optimization and optionally also for structural EM
 #'
 #' @export
-#'
-#' @examples
 experiment.full <- function(dag.vec, dag.names, k.vec, beta.vec, dat.vec,
                             replications, penalties, str.em = FALSE, 
                             parallel = TRUE, ordered = FALSE){
@@ -311,8 +301,6 @@ experiment.full <- function(dag.vec, dag.names, k.vec, beta.vec, dat.vec,
 #' @return pruned graph
 #' 
 #' @export
-#'
-#' @examples
 pruneNetwork <- function(dag, max.parents){
   for(node in nodes(dag)){
     par <- parents(dag, node)
@@ -338,8 +326,6 @@ pruneNetwork <- function(dag, max.parents){
 #' @return pruned bn.fit object
 #' 
 #' @export
-#'
-#' @examples
 pruneFit <- function(dag.fit, max.parents, k = 100){
   dat <- rbn(dag.fit, k*nparams(dag.fit))
   dag.pruned <- pruneNetwork(bn.net(dag.fit, max.parents), max.parents)

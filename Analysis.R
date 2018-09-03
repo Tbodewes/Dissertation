@@ -1,10 +1,13 @@
-#TODO: EM for different penalizations
-
 library(tidyverse)
+library(scales)
+library(extrafont)
+
+loadfonts(device = "win")
+par(family = "serif")
 
 invisible(lapply(c("Scoring.R", "Fit DAG.R", "Experiments.R"), source))
 
-
+#' ** CONFIGURE EXPERIMENTS **
 alarm.string <- paste("[HIST|LVF][CVP|LVV][PCWP|LVV][HYP][LVV|HYP:LVF]",
                       "[LVF][STKV|HYP:LVF][ERLO][HRBP|ERLO:HR][HREK|ERCA:HR][ERCA]",
                       "[HRSA|ERCA:HR][ANES][APL][TPR|APL][ECO2|ACO2:VLNG][KINK]",
@@ -35,527 +38,197 @@ beta.vec.em <- c(0.05, 0.1, 0.2)
 
 dag.vec.pruned <- mapply(pruneFit, dag = dag.vec, max.parents = c(2, 2, 3))
 
+#' ** RUN EXPERIMENTS **
 
-# ORDERED FITTING
-system.time(result.ordered.alarm <- experiment.full(dag.vec = dag.vec.pruned[1], 
-                                                    dag.names = dag.names[1],
-                                                    dat.vec = dat.vec[1],
+#' * Known node ordering *
+system.time(result.ordered<- experiment.full(dag.vec = dag.vec.pruned, 
+                                                    dag.names = dag.names,
+                                                    dat.vec = dat.vec,
                                                     k.vec = k.vec,  beta.vec = beta.vec,
                                                     replications = replications,
                                                     penalties = penalties, str.em = FALSE,
                                                     parallel = TRUE, ordered = TRUE))
 
-saveRDS(result.ordered.alarm, file = "Result_ordered_alarm.RDS")
-
-
-#25,000 seconds
-# system.time(result.ordered.ecoli <- experiment.full(dag.vec = dag.vec.pruned[2], 
-#                                           dag.names = dag.names[2],
-#                                           dat.vec = dat.vec[2],
-#                                           k.vec = k.vec,  beta.vec = beta.vec,
-#                                           replications = replications,
-#                                           penalties = penalties, str.em = FALSE,
-#                                           parallel = TRUE, ordered = TRUE))
-# 
-# saveRDS(result.ordered.ecoli, file = "Result_ordered_ecoli.RDS")
-
-
-system.time(result.ordered.ecoli0 <- experiment.full(dag.vec = dag.vec.pruned[2], 
-                                                     dag.names = dag.names[2],
-                                                     dat.vec = dat.vec[2],
-                                                     k.vec = k.vec,  beta.vec = beta.vec[1],
-                                                     replications = replications,
-                                                     penalties = penalties, str.em = FALSE,
-                                                     parallel = TRUE, ordered = TRUE))
-saveRDS(result.ordered.ecoli0, file = "Result_ordered_ecoli0.RDS")
-
-system.time(result.ordered.ecoli0.05 <- experiment.full(dag.vec = dag.vec.pruned[2], 
-                                                        dag.names = dag.names[2],
-                                                        dat.vec = dat.vec[2],
-                                                        k.vec = k.vec,  beta.vec = beta.vec[2],
-                                                        replications = replications,
-                                                        penalties = penalties, str.em = FALSE,
-                                                        parallel = TRUE, ordered = TRUE))
-saveRDS(result.ordered.ecoli0.05, file = "Result_ordered_ecoli05.RDS")
-
-# system.time(result.ordered.ecoli0.1 <- experiment.full(dag.vec = dag.vec.pruned[2], 
-#                                                        dag.names = dag.names[2],
-#                                                        dat.vec = dat.vec[2],
-#                                                        k.vec = k.vec,  beta.vec = beta.vec[3],
-#                                                        replications = replications,
-#                                                        penalties = penalties, str.em = FALSE,
-#                                                        parallel = TRUE, ordered = TRUE))
-# saveRDS(result.ordered.ecoli0.1, file = "Result_ordered_ecoli1.RDS")
-
-# system.time(result.ordered.ecoli0.2 <- experiment.full(dag.vec = dag.vec.pruned[2], 
-#                                                        dag.names = dag.names[2],
-#                                                        dat.vec = dat.vec[2],
-#                                                        k.vec = k.vec,  beta.vec = beta.vec[4],
-#                                                        replications = replications,
-#                                                        penalties = penalties, str.em = FALSE,
-#                                                        parallel = TRUE, ordered = TRUE))
-# saveRDS(result.ordered.ecoli0.2, file = "Result_ordered_ecoli2.RDS")
-
-
-#3,300 seconds
-system.time(result.ordered.sangiovese <- experiment.full(dag.vec = dag.vec.pruned[3], 
-                                               dag.names = dag.names[3],
-                                               dat.vec = dat.vec[3],
-                                               k.vec = k.vec,  beta.vec = beta.vec,
-                                               replications = replications,
-                                               penalties = penalties, str.em = FALSE,
-                                               parallel = TRUE, ordered = TRUE))
-
-saveRDS(result.ordered.sangiovese, file = "Result_ordered_sangiovese.RDS")
-
-
-
-# UNORDERED FITTING
-
-
-#7,900 seconds
-system.time(result.unordered.alarm <- experiment.full(dag.vec = dag.vec[1], 
-                                                      dag.names = dag.names[1],
-                                                      dat.vec = dat.vec[1],
-                                                      k.vec = k.vec,  beta.vec = beta.vec,
-                                                      replications = replications,
-                                                      penalties = penalties, str.em = FALSE,
-                                                      parallel = TRUE, ordered = FALSE))
-
-saveRDS(result.unordered.alarm, file = "Result_unordered_alarm.RDS")
-
-
-#19,000 seconds
-# system.time(result.unordered.ecoli <- experiment.full(dag.vec = dag.vec[2], 
-#                                                       dag.names = dag.names[2],
-#                                                       dat.vec = dat.vec[2],
-#                                                       k.vec = k.vec,  beta.vec = beta.vec,
-#                                                       replications = replications,
-#                                                       penalties = penalties, str.em = FALSE,
-#                                                       parallel = TRUE, ordered = FALSE))
-# 
-# saveRDS(result.unordered.ecoli, file = "Result_unordered_ecoli.RDS")
-
-
-system.time(result.unordered.ecoli0 <- experiment.full(dag.vec = dag.vec.pruned[2], 
-                                                     dag.names = dag.names[2],
-                                                     dat.vec = dat.vec[2],
-                                                     k.vec = k.vec,  beta.vec = beta.vec[1],
-                                                     replications = replications,
-                                                     penalties = penalties, str.em = FALSE,
-                                                     parallel = TRUE, ordered = FALSE))
-saveRDS(result.unordered.ecoli0, file = "Result_unordered_ecoli0.RDS")
-
-system.time(result.unordered.ecoli0.05 <- experiment.full(dag.vec = dag.vec.pruned[2], 
-                                                        dag.names = dag.names[2],
-                                                        dat.vec = dat.vec[2],
-                                                        k.vec = k.vec,  beta.vec = beta.vec[2],
-                                                        replications = replications,
-                                                        penalties = penalties, str.em = FALSE,
-                                                        parallel = TRUE, ordered = FALSE))
-saveRDS(result.unordered.ecoli0.05, file = "Result_unordered_ecoli05.RDS")
-
-system.time(result.unordered.ecoli0.1 <- experiment.full(dag.vec = dag.vec.pruned[2], 
-                                                       dag.names = dag.names[2],
-                                                       dat.vec = dat.vec[2],
-                                                       k.vec = k.vec,  beta.vec = beta.vec[3],
-                                                       replications = replications,
-                                                       penalties = penalties, str.em = FALSE,
-                                                       parallel = TRUE, ordered = FALSE))
-saveRDS(result.unordered.ecoli0.1, file = "Result_unordered_ecoli1.RDS")
-
-system.time(result.unordered.ecoli0.2 <- experiment.full(dag.vec = dag.vec.pruned[2], 
-                                                       dag.names = dag.names[2],
-                                                       dat.vec = dat.vec[2],
-                                                       k.vec = k.vec,  beta.vec = beta.vec[4],
-                                                       replications = replications,
-                                                       penalties = penalties, str.em = FALSE,
-                                                       parallel = TRUE, ordered = FALSE))
-saveRDS(result.unordered.ecoli0.2, file = "Result_unordered_ecoli2.RDS")
-
-
-
-
-
-
-# 3100 seconds
-system.time(result.unordered.sangiovese <- experiment.full(dag.vec = dag.vec[3], 
-                                                           dag.names = dag.names[3],
-                                                           dat.vec = dat.vec[3],
-                                                           k.vec = k.vec,  beta.vec = beta.vec,
-                                                           replications = replications,
-                                                           penalties = penalties, str.em = FALSE,
-                                                           parallel = TRUE, ordered = FALSE))
-
-saveRDS(result.unordered.sangiovese, file = "Result_unordered_sangiovese.RDS")
-
-
-
-
-
-# COMPARISON WITH EM
-
-
-#32,000 seconds
-# system.time(result.em.alarm <- experiment.full(dag.vec = dag.vec[1], dag.names = dag.names[1],
-#                                    dat.vec = dat.vec[1],
-#                                    k.vec = k.vec.em,  beta.vec = beta.vec.em,
-#                                    replications = replications, 
-#                                    penalties = penalties.em, str.em = TRUE,
-#                                    parallel = FALSE, ordered = FALSE))
-# saveRDS(result.em.alarm, file = "Result_em_alarm.RDS")
-
-system.time(result.em.alarm0.05 <- experiment.full(dag.vec = dag.vec[1], 
-                                                  dag.names = dag.names[1],
-                                                  dat.vec = dat.vec[1],
-                                                  k.vec = k.vec.em,  beta.vec = beta.vec[2],
-                                                  replications = replications,
-                                                  penalties = penalties.em, str.em = TRUE,
-                                                  parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.alarm0.05, file = "Result_em_alarm05.RDS")
-
-system.time(result.em.alarm0.1 <- experiment.full(dag.vec = dag.vec[1], 
-                                                  dag.names = dag.names[1],
-                                                  dat.vec = dat.vec[1],
-                                                  k.vec = k.vec.em,  beta.vec = beta.vec[3],
-                                                  replications = replications,
-                                                  penalties = penalties.em, str.em = TRUE,
-                                                  parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.alarm0.1, file = "Result_em_alarm1.RDS")
-
-system.time(result.em.alarm0.2 <- experiment.full(dag.vec = dag.vec[1], 
-                                                  dag.names = dag.names[1],
-                                                  dat.vec = dat.vec[1],
-                                                  k.vec = k.vec.em,  beta.vec = beta.vec[4],
-                                                  replications = replications,
-                                                  penalties = penalties.em, str.em = TRUE,
-                                                  parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.alarm0.2, file = "Result_em_alarm2.RDS")
-
-
-
-
-# system.time(result.em.ecoli <- experiment.full(dag.vec = dag.vec[2], dag.names = dag.names[2],
-#                                    dat.vec = dat.vec[2],
-#                                    k.vec = k.vec.em,  beta.vec = beta.vec.em,
-#                                    replications = replications, 
-#                                    penalties = penalties.em, str.em = TRUE,
-#                                    parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.ecoli, file = "Result_em_ecoli.RDS")
-
-system.time(result.em.ecoli0.05 <- experiment.full(dag.vec = dag.vec[2], 
-                                                          dag.names = dag.names[2],
-                                                          dat.vec = dat.vec[2],
-                                                          k.vec = k.vec.em,  beta.vec = beta.vec[2],
-                                                          replications = replications,
-                                                          penalties = penalties.em, str.em = TRUE,
-                                                          parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.ecoli0.05, file = "Result_em_ecoli05.RDS")
-
-system.time(result.em.ecoli0.1 <- experiment.full(dag.vec = dag.vec[2], 
-                                                         dag.names = dag.names[2],
-                                                         dat.vec = dat.vec[2],
-                                                         k.vec = k.vec.em,  beta.vec = beta.vec[3],
-                                                         replications = replications,
-                                                         penalties = penalties.em, str.em = TRUE,
-                                                         parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.ecoli0.1, file = "Result_em_ecoli1.RDS")
-
-system.time(result.em.ecoli0.2 <- experiment.full(dag.vec = dag.vec[2], 
-                                                         dag.names = dag.names[2],
-                                                         dat.vec = dat.vec[2],
-                                                         k.vec = k.vec.em,  beta.vec = beta.vec[4],
-                                                         replications = replications,
-                                                         penalties = penalties.em, str.em = TRUE,
-                                                         parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.ecoli0.2, file = "Result_em_ecoli2.RDS")
-
-
-
-
-
-#5,000 seconds
-system.time(result.em.sangiovese <- experiment.full(dag.vec = dag.vec[3], 
-                                                    dag.names = dag.names[3],
-                                    dat.vec = dat.vec[3],
-                                    k.vec = k.vec.em,  beta.vec = beta.vec.em,
-                                    replications = replications, 
-                                    penalties = penalties.em, str.em = TRUE,
-                                    parallel = TRUE, ordered = FALSE))
-saveRDS(result.em.sangiovese, file = "Result_em_sangiovese_second.RDS")
-
-
-#' Aggregate results
-
-result.ordered.ecoli0 <- readRDS("Result_ordered_ecoli0.RDS")
-result.ordered.ecoli0.05 <- readRDS("Result_ordered_ecoli05.RDS")
-result.ordered.ecoli0.1 <- readRDS("Result_ordered_ecoli1.RDS")
-result.ordered.ecoli0.2 <- readRDS("Result_ordered_ecoli2.RDS")
-
-result.ordered.ecoli <- rbind(result.ordered.ecoli0, result.ordered.ecoli0.05,
-                              result.ordered.ecoli0.1, result.ordered.ecoli0.2)
-
-saveRDS(result.ordered.ecoli, file = "Result_ordered_ecoli.RDS")
-
-result.unordered.ecoli0 <- readRDS("Result_unordered_ecoli0.RDS")
-result.unordered.ecoli0.05 <- readRDS("Result_unordered_ecoli05.RDS")
-result.unordered.ecoli0.1 <- readRDS("Result_unordered_ecoli1.RDS")
-result.unordered.ecoli0.2 <- readRDS("Result_unordered_ecoli2.RDS")
-
-result.unordered.ecoli <- rbind(result.unordered.ecoli0, result.unordered.ecoli0.05,
-                                result.unordered.ecoli0.1, result.unordered.ecoli0.2)
-
-saveRDS(result.unordered.ecoli, file = "Result_unordered_ecoli_first.RDS")
-
-
-result.em.alarm0.05 <- readRDS("Result_em_alarm05.RDS")
-result.em.alarm0.1 <- readRDS("Result_em_alarm1.RDS")
-result.em.alarm0.2 <- readRDS("Result_em_alarm2.RDS")
-
-result.em.alarm <- rbind(result.em.alarm0.05, result.em.alarm0.1, result.em.alarm0.2)
-
-saveRDS(result.em.alarm, file = "Result_em_alarm.RDS")
-
-
-result.em.ecoli0.05 <- readRDS("Result_em_ecoli05.RDS")
-result.em.ecoli0.1 <- readRDS("Result_em_ecoli1.RDS")
-result.em.ecoli0.2 <- readRDS("Result_em_ecoli2.RDS")
-
-result.em.ecoli <- rbind(result.em.ecoli0.05, result.em.ecoli0.1, result.em.ecoli0.2)
-
-saveRDS(result.em.ecoli, file = "Result_em_ecoli.RDS")
-
-
-result.ordered.alarm <- readRDS("Result_ordered_alarm.RDS")
-result.ordered.ecoli <- readRDS("Result_ordered_ecoli.RDS")
-result.ordered.sangiovese <- readRDS("Result_ordered_sangiovese.RDS")
-
-result.ordered <- rbind(result.ordered, result.ordered.alarm, result.ordered.ecoli,
-                        result.ordered.sangiovese)
 saveRDS(result.ordered, file = "Result_ordered.RDS")
 
+#' * Unknown node ordering *
+system.time(result.unordered<- experiment.full(dag.vec = dag.vec, 
+                                             dag.names = dag.names,
+                                             dat.vec = dat.vec,
+                                             k.vec = k.vec,  beta.vec = beta.vec,
+                                             replications = replications,
+                                             penalties = penalties, str.em = FALSE,
+                                             parallel = TRUE, ordered = FALSE))
 
-result.unordered.alarm <- readRDS("Result_unordered_alarm.RDS")
-result.unordered.ecoli <- readRDS("Result_unordered_ecoli.RDS")
-result.unordered.sangiovese <- readRDS("Result_unordered_sangiovese.RDS")
-
-result.unordered <- rbind(result.unordered, result.unordered.alarm, result.unordered.ecoli,
-                          result.unordered.sangiovese)
 saveRDS(result.unordered, file = "Result_unordered.RDS")
 
-
-result.em.alarm <- readRDS("Result_em_alarm.RDS")
-result.em.ecoli <- readRDS("Result_em_ecoli.RDS")
-result.em.sangiovese <- readRDS("Result_em_sangiovese.RDS")
-
-result.em <- rbind(result.em.alarm, result.em.ecoli,
-                               result.em.sangiovese)
+#' * Comparison of NAL and S-EM *
+system.time(result.em <- experiment.full(dag.vec = dag.vec,
+                                         dag.names = dag.names,
+                                         dat.vec = dat.vec,
+                                         k.vec = k.vec.em,  beta.vec = beta.vec.em,
+                                         replications = replications,
+                                         penalties = penalties.em, str.em = TRUE,
+                                         parallel = FALSE, ordered = FALSE))
 saveRDS(result.em, file = "Result_em.RDS")
 
 
+#' ** PROCESS RESULTS **
 result.ordered <- readRDS("Result_ordered.RDS")
 result.unordered <- readRDS("Result_unordered.RDS")
-
-
-#' Check that we have 20 replications for all configurations
-result.ordered %>% group_by(dag, k, beta, penalty) %>%
-  summarize(count = n()) %>% 
-  filter(count != 20)
-
-result.unordered %>% group_by(dag, k, beta, penalty) %>%
-  summarize(count = n()) %>% 
-  filter(count != 20)
-
-#' Plot results
-
-pdf("Graph_ordered.pdf", height = 6, width = 7.5)
-result.ordered %>% filter(beta != 0.4)  %>% group_by(dag, k, beta, penalty) %>% 
-  summarize(SHD.av = mean(SHD.NAL), se = sd(SHD.NAL)/n(), 
-            lb = quantile(SHD.NAL, 0.25), ub = quantile(SHD.NAL, 0.75)) %>%
-  ggplot(aes(k, SHD.av)) +
-  geom_line(aes(colour = penalty, linetype = penalty)) +
-  geom_point(aes(colour = penalty), size = 1) +
-  facet_grid(dag~beta, labeller = label_both) +
-  labs(x = "Relative sample size (k)", y = "Scaled SHD") +
-  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
-  ggtitle("Accuracy of NAL optimization for known node order",
-          subtitle = paste("NAL scoring often gives better results for incomplete data if",
-                           "a penalization factor under 0.5 is used")) +
-  theme(plot.title = element_text(size = 12, face = "bold"), 
-        plot.subtitle = element_text(size = 10, face = "italic"))
-dev.off()
-
-
-computePenalizations <- function(n.vec, penalty.vec, no.nodes = 30){
-  
-  singlePenalty <- function(n, penalty, no.nodes){
-    
-    bic = F
-    aic = F
-    alpha = NULL
-    
-    if(penalty == "bic"){bic = TRUE}
-    else if(penalty == "aic"){aic = TRUE}
-    else if(!is.na(is.numeric(penalty))){alpha = as.numeric(penalty)}
-    else {stop("Penalty must be 'bic', 'aic' or a number")}
-    
-    if(bic){penaltyFactor <- 0.5*log(n)/n}
-    else if (aic){penaltyFactor <- 1/n}
-    else {penaltyFactor <- (1/no.nodes)* n^(-alpha)}
-    
-    return(penaltyFactor)
-  }
-  
-  input <- expand.grid(n.vec, penalty.vec, no.nodes, stringsAsFactors = FALSE)
-  names(input) <- c("n", "penalty", "nodes")
-  output <- mapply(singlePenalty, n = input$n, penalty = input$penalty, 
-                   no.nodes = input$nodes)
-  result <- cbind(input, output)
-  
-  return(result)
-}
-
-penalties <- c("0.10", "0.25", "0.40", "0.60", "bic", "aic")
-penalizations <- computePenalizations(seq(1000, 1000000, 1000), penalties, 30)
-
-pdf("penalizationRates.pdf", height = 2.5, width = 7)
-ggplot(penalizations, (aes(x = n, y = output))) +
-  geom_line(aes(colour = penalty, linetype = penalty)) + 
-  scale_y_log10() +
-  labs(title = paste("Penalization rate behaviour"),
-       x = "Sample size (x1000)",
-       y = expression(paste(lambda[n], " (log-scale)"))) +
-  scale_x_continuous(labels = function(x){x/1000}) +
-  ggtitle("Penalization rate behaviour",
-          subtitle = paste("Penalization rates of the form  n^(-alpha) go to zero very", 
-                           "slowly for small alpha")) +
-  theme(plot.title = element_text(size = 12, face = "bold"), 
-        plot.subtitle = element_text(size = 10, face = "italic"))
-dev.off()
-
-
-pdf(file = "Graph_unordered.pdf", height = 6, width = 7.5)
-result.unordered %>% filter(beta != 0.4) %>% group_by(dag, k, beta, penalty) %>% 
-  summarize(SHD.av = mean(SHD.NAL)) %>%
-  ggplot(aes(k, SHD.av)) + 
-  geom_line(aes(colour = penalty, linetype = penalty)) +
-  geom_point(aes(colour = penalty), size = 1) +
-  facet_grid(dag~beta, scales = "free_y", labeller = label_both) +
-  labs(x = "Relative sample size (k)", y = "Scaled SHD") +
-  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
-  theme(plot.title = element_text(size = 12, face = "italic")) +
-  ggtitle("Accuracy of NAL optimization for unknown node order",
-          subtitle = paste("NAL optimization for unknown node order tends to perform best", 
-                           "with penalization rates under 0.25")) +
-  theme(plot.title = element_text(size = 12, face = "bold"), 
-        plot.subtitle = element_text(size = 10, face = "italic"))
-dev.off()
-
-
-pdf(file = "Que_unordered.pdf", height = 6, width = 7.5)
-result.unordered %>% filter(beta != 0.4) %>% group_by(dag, k, beta, penalty) %>% 
-  summarize(QUE.av = mean(QUE.NAL)) %>%
-  ggplot(aes(k, QUE.av)) + 
-  geom_line(aes(colour = penalty, linetype = penalty)) +
-  geom_point(aes(colour = penalty), size = 1) +
-  facet_grid(dag~beta, scales = "free_y", labeller = label_both) +
-  labs(x = "Relative sample size (k)", y = "Number of queries") +
-  ggtitle("Computational cost of NAL optimization for unknown node order",
-          subtitle = "NAL optimization tends to converge faster for harsher penalization") +
-  theme(plot.title = element_text(size = 12, face = "bold"), 
-        plot.subtitle = element_text(size = 10, face = "italic"))
-dev.off()
-
-
 result.em <- readRDS("Result_em.RDS")
 
-#Count number of successful replications for each case 
-View(result.em %>% na.omit %>%
-  group_by(dag, k, beta, penalty) %>%
-  summarise(count = n()))
+names(result.ordered)[c(1, 4)] <- c("DAG", "Penalty")
+result.ordered$DAG <- toupper(result.ordered$DAG)
+result.ordered$Penalty <- toupper(result.ordered$Penalty)
+result.ordered$beta <- paste("beta:~", result.ordered$beta, sep = "")
+
+names(result.unordered)[c(1, 4)] <- c("DAG", "Penalty")
+result.unordered$DAG <- toupper(result.unordered$DAG)
+result.unordered$Penalty <- toupper(result.unordered$Penalty)
+result.unordered$beta <- paste("beta:~", result.unordered$beta, sep = "")
+
+names(result.em)[c(1, 4)] <- c("DAG", "Penalty")
+result.em$DAG <- toupper(result.em$dag)
+result.em$Penalty <- toupper(result.em$Penalty)
+result.em$beta <- paste("beta:~", result.em$beta, sep = "")
 
 result.em.cast <- result.em %>% 
   mutate(id = row_number()) %>%
-  melt(id.vars = c("dag", "k", "beta", "penalty", "id")) %>%
+  melt(id.vars = c("dag", "k", "beta", "Penalty", "id")) %>%
   mutate(variable = as.character(variable),
          metric = as.factor(substr(variable, 1, 3)), 
          method = as.factor(substr(variable, 5, 7))) %>%
   select(-variable)
 
 result.em.tidy <- na.omit(spread(result.em.cast, key = method, value = value)) %>%
-  mutate(ratio = NAL/SEM) %>% group_by(dag, k, beta, penalty, metric) %>%
+  mutate(ratio = NAL/SEM) %>% group_by(dag, k, beta, Penalty, metric) %>%
   summarise(ratio.av = mean(ratio), se = sd(ratio)/n(), lb = ratio.av - 2*se,
             ub = ratio.av + 2*se)
 
-emplot.height <- 4.5
-emplot.width <- 7.5
+#' ** PRODUCE FIGURES **
+titleSize <- 12.5
+textSize <- 11.5
+theme.png <- theme(plot.title = element_text(size = titleSize, face = "bold", family = "serif"), 
+                   plot.subtitle = element_text(size = textSize, face = "italic", family = "serif"),
+                   axis.title = element_text(size = textSize, family = "serif"),
+                   legend.title = element_text(size = textSize, family = "serif"),
+                   legend.text = element_text(size = textSize, family = "serif"),
+                   strip.text = element_text(size = textSize, family = "serif"))
 
-pdf("Graph_EM_SHD.pdf", height = emplot.height, width = emplot.width) 
+png("Graph_ordered.png", height = 6, width = 8, units = "in", 
+    res = 1000)
+result.ordered  %>% group_by(DAG, k, beta, Penalty) %>% 
+  summarize(SHD.av = mean(SHD.NAL), se = sd(SHD.NAL)/n(), 
+            lb = SHD.av - 2*se, ub = SHD.av + 2*se) %>%
+  ggplot(aes(k, SHD.av)) +
+  geom_line(aes(colour = Penalty, linetype = Penalty)) +
+  geom_point(aes(colour = Penalty), size = 1) +
+  #geom_errorbar(aes(ymin = lb, ymax = ub, colour = Penalty), size = 0.1) +
+  facet_grid(DAG~beta, labeller = labeller(beta = label_parsed, DAG = label_value)) +
+  labs(x = "Relative sample size (k)", y = "Scaled SHD") +
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
+  ggtitle("Structure learning performance of NAL for known node ordering",
+          subtitle = paste("NAL often gives better results for incomplete data if",
+                           "a penalization factor under 0.5 is used")) +
+  theme.png
+dev.off()
+
+png(file = "Graph_unordered.png", height = 6, width = 8, units = "in", 
+    res = 1000)
+result.unordered  %>% group_by(DAG, k, beta, Penalty) %>% 
+  summarize(SHD.av = mean(SHD.NAL), se = sd(SHD.NAL)/n(), 
+            lb = SHD.av - 2*se, ub = SHD.av + 2*se) %>%
+  ggplot(aes(k, SHD.av)) +
+  geom_line(aes(colour = Penalty, linetype = Penalty)) +
+  geom_point(aes(colour = Penalty), size = 1) +
+  #geom_errorbar(aes(ymin = lb, ymax = ub, colour = Penalty), size = 0.1) +
+  facet_grid(DAG~beta, scales = "free_y", 
+             labeller = labeller(beta = label_parsed, DAG = label_value)) +
+  labs(x = "Relative sample size (k)", y = "Scaled SHD") +
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
+  ggtitle("Structure learning performance of NAL for unknown node ordering",
+          subtitle = paste("NAL tends to perform best for unknown node ordering", 
+                           "with penalization rates under 0.25")) +
+  theme.png
+dev.off()
+
+
+png(file = "Que_unordered.png", height = 6, width = 8, units = "in", 
+    res = 1000)
+result.unordered  %>% group_by(DAG, k, beta, Penalty) %>% 
+  summarize(QUE.av = mean(QUE.NAL)) %>%
+  ggplot(aes(k, QUE.av)) + 
+  geom_line(aes(colour = Penalty, linetype = Penalty)) +
+  geom_point(aes(colour = Penalty), size = 1) +
+  #geom_errorbar(aes(ymin = lb, ymax = ub, colour = Penalty), size = 0.1) +
+  facet_grid(DAG~beta, scales = "free_y", 
+             labeller = labeller(beta = label_parsed, DAG = label_value)) +
+  labs(x = "Relative sample size (k)", y = "Calls to scoring function") +
+  geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
+  ggtitle("Computational cost of NAL for unknown node ordering",
+          subtitle = "Tabu search with NAL scoring converges faster for harsher penalization") +
+  theme.png
+dev.off()
+
+
+
+emplot.height <- 4.5
+
+png("Graph_EM_SHD.png", height = emplot.height, width = 8, units = "in", 
+    res = 1000) 
 filter(result.em.tidy, metric == "SHD") %>% 
   ggplot(aes(k, ratio.av)) +
-  geom_line(aes(color = penalty, linetype = penalty)) + 
-  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
-  geom_point(aes(color = penalty)) +
-  labs(x = "Relative sample size (k)", y = "SHD of NAL / SHD of S-EM") + 
+  geom_line(aes(colour = Penalty, linetype = Penalty)) +
+  geom_point(aes(colour = Penalty), size = 1) +
+  #geom_errorbar(aes(ymin = lb, ymax = ub, colour = Penalty), size = 0.1) +
+  facet_grid(dag~beta, scales = "free_y", 
+             labeller = labeller(beta = label_parsed, dag = label_value)) +
+  labs(x = "Relative sample size (k)", y = "SHD ratio (NAL / S-EM)")+ 
   geom_hline(yintercept = 1, linetype = 2) +
   geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
-  ggtitle("Ratio of SHD of NAL optimization to SHD of Structural EM",
-          subtitle = paste("NAL optimization with appropriate penalization", 
+  ggtitle("Comparison of NAL and S-EM on structure learning performance",
+          subtitle = paste("NAL with appropriate penalization", 
                            "learns graphs of similar quality as Structural EM")) +
-  theme(plot.title = element_text(size = 12, face = "bold"), 
-        plot.subtitle = element_text(size = 10, face = "italic")) +
+  theme.png +
   scale_color_manual(values = hue_pal()(6)[1:3])
 dev.off()
 
 
-pdf("Graph_EM_Q.pdf", height = emplot.height, width = emplot.width) 
-filter(result.em.tidy, metric == "QUE", beta != 0.4) %>% 
+png("Graph_EM_Q.png", height = emplot.height, width = 8, units = "in", 
+    res = 1000) 
+filter(result.em.tidy, metric == "QUE") %>% 
   ggplot(aes(k, ratio.av)) +
-  geom_line(aes(color = penalty, linetype = penalty)) + 
-  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
-  geom_point(aes(color = penalty)) +
-  labs(x = "Relative sample size (k)", y = "Queries of NAL / queries of S-EM") + 
-  geom_hline(yintercept = 1, linetype = 2)+
+  geom_line(aes(colour = Penalty, linetype = Penalty)) +
+  geom_point(aes(colour = Penalty), size = 1) +
+  #geom_errorbar(aes(ymin = lb, ymax = ub, colour = Penalty), size = 0.1) +
+  facet_grid(dag~beta, scales = "free_y", 
+             labeller = labeller(beta = label_parsed, dag = label_value)) +
+  labs(x = "Relative sample size (k)", y = "Calls to scoring function ratio (NAL / S-EM)")+ 
+  geom_hline(yintercept = 1, linetype = 2) +
   geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
-  ggtitle("Ratio of no. of queries for NAL optimization to no. of queries for Structural EM",
-          subtitle = "NAL optimization tends to converge in fewer queries than Structural EM") +
-  theme(plot.title = element_text(size = 12, face = "bold"), 
-        plot.subtitle = element_text(size = 10, face = "italic")) +
+  ggtitle("Comparison of NAL and S-EM on number of calls to scoring function",
+          subtitle = paste("NAL with appropriate penalization", 
+                           "requires 50-75% fewer calls to the scoring function than S-EM")) +
+  theme.png +
   scale_color_manual(values = hue_pal()(6)[1:3])
 dev.off()
 
-pdf("Graph_EM_T.pdf", height = emplot.height, width = emplot.width) 
-filter(result.em.tidy, metric == "TIM", beta != 0.4) %>% 
+png("Graph_EM_T.png", height = emplot.height, width = 8, units = "in", 
+    res = 1000) 
+filter(result.em.tidy, metric == "TIM") %>% 
   ggplot(aes(k, ratio.av)) +
-  geom_line(aes(color = penalty, linetype = penalty)) + 
-  facet_grid(dag ~ beta, scale = "free_y", labeller = label_both) +
-  geom_point(aes(color = penalty)) +
-  labs(x = "Relative sample size (k)", y = "Time of NAL / time of S-EM") +
-  geom_hline(yintercept = 1, linetype = 2)+
+  geom_line(aes(colour = Penalty, linetype = Penalty)) +
+  geom_point(aes(colour = Penalty), size = 1) +
+  #geom_errorbar(aes(ymin = lb, ymax = ub, colour = Penalty), size = 0.1) +
+  facet_grid(dag~beta, scales = "free_y", 
+             labeller = labeller(beta = label_parsed, dag = label_value)) +
+  labs(x = "Relative sample size (k)", y = "Computation time ratio (NAL / S-EM)")+ 
+  geom_hline(yintercept = 1, linetype = 2) +
   geom_hline(yintercept = 0, linetype = 5, alpha = 1/4) +
-  ggtitle("Ratio of running time of NAL optimization to running time of Structural EM",
-          subtitle = "NAL optimization tends to be much faster than Structural EM") +
-  theme(plot.title = element_text(size = 12, face = "bold"), 
-        plot.subtitle = element_text(size = 10, face = "italic")) +
+  ggtitle("Comparison of NAL and S-EM on computation time",
+          subtitle = paste("NAL with appropriate penalization converges four to ten times", 
+                           "faster than S-EM")) +
+  theme.png +
   scale_color_manual(values = hue_pal()(6)[1:3])
 dev.off()
-
-
-
-
-# Phenotype graph
-
-phen.names <- c("NoAHR", "baseline", "106a", "126#", "1290", "146b",
-                "17", "185", "199a", "19b", "25", "30a", "328")
-dag.phen <- empty.graph(phen.names)
-phen.arcs <- data.frame(from = c(phen.names[1], phen.names[1], phen.names[7], phen.names[13],
-                                 phen.names[1], phen.names[6], phen.names[1], phen.names[9],
-                                 phen.names[10], phen.names[10], phen.names[1], phen.names[4],
-                                 phen.names[11], phen.names[7]),
-                        to = c(phen.names[2], phen.names[3], phen.names[3], phen.names[3],
-                               phen.names[5], phen.names[5], phen.names[8], phen.names[8],
-                               phen.names[8], phen.names[11], phen.names[12], phen.names[12],
-                               phen.names[12], phen.names[13]), stringsAsFactors = FALSE)
-                                 
-arcs(dag.phen) <-  phen.arcs
-graphviz.plot(dag.phen)

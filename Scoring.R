@@ -1,71 +1,87 @@
 library(bnlearn)
 
+#' ** Functions for computing score **
 
-#' Computes sufficient statistics for a node in a Discrete Bayesian Network
+#' Computes penalized Node-Average Likelihood (NAL) of a Conditional Gaussian
+#' Bayesian Network (CGBN) on a given dataset
 #'
-#' Makes contingency table for a multinomial node and its multinomial parents in
-#' a DAG
+#' Computes the NAL for discrete and continuous nodes in a given DAG and
+#' substracts from it a complexity penalty. NAL handles incomplete data by using
+#' locally complete data. That is, each term in the log-likelihood only depends
+#' on data for one node and its parents. Each term can thus be computed using
+#' observations for which this data is complete. This gives the NAL.
 #'
-#' @param node string, name of node
-#' @param dag DAG determining parental sets of nodes
-#' @param dat dataframe with a factor column for each node in network
+#' Penalization takes the form of (1/nnodes(dag)) n^(-alpha) * nparams(dag) or
+#' of BIC or AIC
 #'
-#' @return Contingency table. First dimension corresponds to levels of node,
-#'   further dimensions correspond to levels of parents
+#' @param dag bn object specifying parental set of each node
+#' @param dat dataframe with data for each node
+#' @param penalty string determining penalization. Should be "bic", "aic" or a
+#'   number larger than zero
+#'
+#' @return score of DAG
 #'
 #' @export
-#'
-#' @examples
-computeCount.node <- function(node, dag, dat){
-  currentParents <- parents(dag, node)
-  familydata <- na.omit(dat[,c(node, currentParents)])
-  counts <- table(familydata)
-  return(counts)
-}
-
-#' Computes conditional counts per node in a discrete Bayesian network
-#'
-#'
-#' @inheritParams computeCount.node
-#' @param cl Optional parallel cluster. Must have bnlearn loaded and each
-#'   cluster must have access to dataframe 'dat'
-#'
-#' @return List of arrays. First dimension in each array corresponds to
-#'   different levels of node, all other dimensions correspond to different
-#'   levels of parents
-#' @export
-#'
-#' @examples
-computeCounts <- function(dag, dat, cl = NULL){
+computeScore <- function(dag, dat, penalty, cl = NULL){
+  
   node.names <- names(dat)
+  score.nodes <- sapply(node.names, computeScore.node, dag = dag, dat = dat,
+                        penalty = penalty)
   
-  #Paralellize if a cluster has been supplied, otherwise execute sequentially
-  if(is.null(cl))
-  {counts.list <- lapply(node.names, computeCount.node, dag = dag, dat = dat)}
-  else
-  {counts.list <- parLapply(cl, node.names, computeCount.node, dag = dag, 
-                            dat = dat)}
+  score <- mean(score.nodes, na.rm = TRUE)*nnodes(dag)
   
-  names(counts.list) <- node.names
-  return(counts.list)
+  return(score)
 }
 
-
-#' Compute node-average log-likelihood for a CGN and a given dataset
+#' Compute penalized NAL for a discrete or continuous node in a CGN
 #'
-#' Allows computation of likelihood over a Bayesian network in the presence of
-#' missing data
+#' @param node name of node to be scored
+#' @inheritParams computeScore
 #'
-#' @inheritParams computeCount.node
-#' @param dat dataframe to be used. Columns can be factors or continuous
-#'   variables
-#'
-#' @return Node-average likelihood per observation (logLik will return the sum
-#'   of likelihoods over observations)
-#'
+#' @return Score for given node
+#' 
 #' @export
+computeScore.node <- function(node, dag, dat, penalty, no.nodes = NULL){
+  
+  #Compute NAL and retrieve number of degrees of freedom
+  NAL <- computeNAL.node(node, dag, dat)
+  logl <- NAL$logl
+  no.params <- NAL$df
+  
+  #Configure and compute penalty
+  bic = F
+  aic = F
+  alpha = NULL
+  
+  if(penalty == "bic"){bic = TRUE}
+  else if(penalty == "aic"){aic = TRUE}
+  else if(!is.na(is.numeric(penalty))){alpha = as.numeric(penalty)}
+  else {stop("Penalty must be 'bic', 'aic' or a number")}
+  
+  if(is.null(no.nodes)){no.nodes <- nnodes(dag)}
+  n <- nrow(dat)
+  
+  if(bic){penaltyFactor <- 0.5*log(n)/n}
+  else if (aic){penaltyFactor <- 1/n}
+  else {penaltyFactor <- 1/no.nodes * n^(-alpha)}
+  
+  #Compute and return score
+  nodeScore <-  logl - penaltyFactor*no.params
+  return(nodeScore)
+}
+
+#' ** Functions for computing NAL **
+
+#' Computes total NAL of a CGBN
 #'
-#' @examples
+#' @inheritParams computeScore
+#'
+#' @return NAL
+#' 
+#' @note NAL is averaged over observations, i.e. for complete data, 
+#' computeNAL(dag, dat) = logLik(dag, dat)/nrow(dat) 
+#' 
+#' @export
 computeNAL <- function(dag, dat){
   node.names <- names(dat)
   logl.nodes <- sapply(node.names, function(node)
@@ -75,32 +91,17 @@ computeNAL <- function(dag, dat){
 }
 
 
-#' Determines which parents of a given node are continuous RV
+#' Computes NAL for a discrete or continuous node in a CGBN
 #'
-#' @param node name of node under inspection
-#' @param dag DAG determining parental sets
-#' @param dat dataset
+#' @inheritParams computeScore.node
 #'
-#' @return logical vector with an entry for each parent. TRUE if parent is
-#'   numeric in dat, FALSE if parent is a factor
+#' @return NAL and number of fitted parameters for a given node
+#'
 #' @export
-#'
-#' @examples
-parentsContinuous <- function(node, dag, dat){
-  return(sapply(parents(dag, node), function(parent){
-    is.numeric(dat[[parent]])}))
-}
-
-#' Computes node-average likelihood for a single node
-#'
-#' @inheritParams parentsContinuous 
-#'
-#' @return NAL for given node
-#' 
-#' @export
-#'
-#' @examples
 computeNAL.node <- function(node, dag, dat){
+  if(!node %in% nodes(dag) || !node %in% names(dat))
+  {stop("Invalid node name: does not appear in either DAG or data")}
+  
   if(is.factor(dat[[node]])){
     return(computeNAL.discrete(node, dag, dat))
   }
@@ -110,20 +111,27 @@ computeNAL.node <- function(node, dag, dat){
 }
 
 
-#' Computes NAL for discrete nodes in CGNs
+#' * Functions for scoring discrete nodes *
+
+#' Computes NAL for a discrete node in a CGBN
+#' 
+#' NAL for discrete nodes is based on fitting a categorical distribution for
+#' each configuration of discrete parents
 #'
-#' @inheritParams computeNAL.node
+#' @inheritParams computeScore.node
 #'
-#' @return NAL for given node
+#' @return NAL and number of fitted parameters for given node
+#'
+#' @note returns -Inf if the node has continuous parents, as this is not allowed
+#'   in a CGBN
+#'
 #' @export
-#'
-#' @examples
 computeNAL.discrete <- function(node, dag, dat){
   
   #Check that none of the discrete node's parents are continuous. If any parent
   #is continuous, return -Inf to indicate that the DAG is invalid
   if(any(parentsContinuous(node, dag, dat)))
-    {return(list(logl = -Inf, df = 0))}
+  {return(list(logl = -Inf, df = 0))}
   
   counts <- computeCount.node(node, dag, dat)
   
@@ -147,16 +155,6 @@ computeNAL.discrete <- function(node, dag, dat){
   else{
     parentIndices <- 2:familySize
     parent.counts <-  colSums(counts)
-    
-    #Give a warning if there are no observations for some parental configuration
-    # if(any(parent.counts < 1)){
-    #   node.names <- names(dimnames(counts))
-    #   warning(c("No valid observations for ", node.names[1] , 
-    #             " for some configuration of parents\n", 
-    #             encodeString(node.names[-1], quote = " ") ,
-    #             ": result is NaN"))
-    #   return(list(logl = NaN, df = 0))
-    # }
     
     #Compute MLEs
     mle.conditional <- sweep(counts, parentIndices, parent.counts, "/")
@@ -192,14 +190,46 @@ computeNAL.discrete <- function(node, dag, dat){
 }
 
 
-#' Computes NAL for continuous nodes in CGNs
+#' Computes contingency table for a node and its parents using locally complete
+#' data
 #'
-#' @inheritParams computeNAL.node
+#' @inheritParams computeScore.node
 #'
-#' @return NAL for given node
+#' @return Contingency table. First dimension corresponds to levels of node,
+#'   further dimensions correspond to levels of parents
+#'
 #' @export
+computeCount.node <- function(node, dag, dat){
+  currentParents <- parents(dag, node)
+  familydata <- na.omit(dat[,c(node, currentParents)])
+  counts <- table(familydata)
+  return(counts)
+}
+
+
+#' Determines which parents of a given node are continuous RV
 #'
-#' @examples
+#' @inheritParams computeScore.node
+#'
+#' @return logical vector with an entry for each parent. TRUE if parent is
+#'   numeric in dat, FALSE if parent is a factor
+#'   
+#' @export
+parentsContinuous <- function(node, dag, dat){
+  return(sapply(parents(dag, node), function(parent){is.numeric(dat[[parent]])}))
+}
+
+
+#' Computes NAL for continuous nodes in a CGBN
+#'
+#' NAL for continuous nodes is based on fitting a linear regression of with the
+#' continuous parents as regressors, for each configuration of discrete parents
+#'
+#' @inheritParams computeScore.node
+#'
+#' @return NAL and number of fitted parameters for given node
+#'
+#' @export
 computeNAL.gaussian <- function(node, dag, dat){
   #Obtain dataframe with only node and parents, omit rows with missing entries
   currentParents <- parents(dag, node)
@@ -280,66 +310,4 @@ computeNAL.gaussian <- function(node, dag, dat){
   
   return(list(logl = logl, df = no.params))
 }
-
-
-#' Compute penalized likelihood for a node in a CGN
-#'
-#' @inheritParams computeNAL.node
-#' @param penalty string determining how fast the complexity penalty grows in n.
-#'   Options are "bic" (log(n)/n), "aic" (1/n) or any number larger than 0, in
-#'   which case the penalty grows as n^(-number)
-#'
-#' @return score for given node
-#' @export
-#'
-#' @examples
-computeScore.node <- function(node, dag, dat, penalty, no.nodes = NULL){
-  
-  NAL <- computeNAL.node(node, dag, dat)
-  logl <- NAL$logl
-  no.params <- NAL$df
-  
-  #Configure and compute penalty
-  bic = F
-  aic = F
-  alpha = NULL
-  
-  if(penalty == "bic"){bic = TRUE}
-  else if(penalty == "aic"){aic = TRUE}
-  else if(!is.na(is.numeric(penalty))){alpha = as.numeric(penalty)}
-  else {stop("Penalty must be 'bic', 'aic' or a number")}
-  
-  if(is.null(no.nodes)){no.nodes <- nnodes(dag)}
-  n <- nrow(dat)
-  
-  if(bic){penaltyFactor <- 0.5*log(n)/n}
-  else if (aic){penaltyFactor <- 1/n}
-  else {penaltyFactor <- 1/no.nodes * n^(-alpha)}
-  
-  nodeScore <-  logl - penaltyFactor*no.params
-  return(nodeScore)
-}
-
-
-#' Compute score for CGN
-#'
-#' @inheritParams computeScore.node
-#' @param cl optional parallel cluster. Should have relevant functions, packages
-#'   and data pre-loaded
-#'
-#' @return score for full network on given dataset
-#' @export
-#'
-#' @examples
-computeScore <- function(dag, dat, penalty, cl = NULL){
-  
-  node.names <- names(dat)
-  score.nodes <- sapply(node.names, computeScore.node, dag = dag, dat = dat,
-                        penalty = penalty)
-  
-  score <- mean(score.nodes, na.rm = TRUE)*nnodes(dag)
-  
-  return(score)
-}
-
 

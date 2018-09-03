@@ -1,5 +1,6 @@
 library(parallel)
 library(data.table)
+source("Fit DAG.R")
 
 #' Obtains DAG from bootstrap samples and fits parameters using EM
 #'
@@ -10,13 +11,16 @@ library(data.table)
 #'
 #' @param samples List of bootstrapped DAGs
 #' @param threshold Minimum strength of an arc to be included in DAG
-#' @inheritParams em.parametric
+#' @param dat Data to learn parameters from
+#' @param max.iter Maximum number of iterations of parametric EM (default is 1)
+#' @param particles Number of samples to use in simulation for parametric EM
+#' @param obs.perParam Number of observations per parameter to learn. Defaults
+#'   to full dataset (for parametric EM)
+#' @param parallel If TRUE, do data imputation in parallel
 #'
 #' @return bn.fit object containing averaged DAG with fitted parameters
 #' 
 #' @export
-#'
-#' @examples
 fit.boot <- function(samples, threshold, dat, particles, obs.perParam,
                      max.iter = 1, parallel = FALSE){
   #Average bootstrapped DAGs
@@ -36,14 +40,17 @@ fit.boot <- function(samples, threshold, dat, particles, obs.perParam,
   }
   if(nrow(undirected.arcs(dag)) > 0){stop("Graph is not fully directed")}
   
-  #Learn parameters in a single iteration of parametric EM
+  #Learn parameters using a single iteration of parametric EM
   dag.fit <- em.parametric(dag, dat, max.iter = max.iter, particles = particles,
                            obs.perParam = obs.perParam, parallel = parallel)$dag
   return(dag.fit)
 }
 
 
-#' Computes in- and out- of sample predictions for a given Bayesian network
+#' Computes predictions for a given Bayesian network
+#'
+#' Predictions are made for incomplete data using the data imputation routine
+#' from bnlearn. This marginalizes out missing values.  
 #'
 #' @param dat Dataframe containing data to use for prediction. Need not be
 #'   complete, missing values are marginalized out
@@ -52,11 +59,9 @@ fit.boot <- function(samples, threshold, dat, particles, obs.perParam,
 #' @param train if FALSE (default), an out-of-sample prediction procedure is
 #'   used. If TRUE (only available for predicting continuous variables), the
 #'   values fitted during training are used
-#' @inheritParams em.parametric
+#' @inheritParams fit.boot
 #'
 #' @return Two column dataframe containing fitted and actual values
-#' 
-#' @export
 #'
 #' @note If there is evidence in the prediction dataset that was not in the
 #'   training dataset, the likelihood weighted sampling procedure used for
@@ -66,7 +71,7 @@ fit.boot <- function(samples, threshold, dat, particles, obs.perParam,
 #'   In the latter case one can set unidentifiable parameters using a uniform
 #'   prior
 #'
-#' @examples
+#' @export
 computePredictions <- function(varName, dat, dag.fit, train = FALSE, 
                                particles = 100, parallel = FALSE){
   colNum <- which(names(dat) == varName)
@@ -77,7 +82,7 @@ computePredictions <- function(varName, dat, dag.fit, train = FALSE,
     actuals <- dat[[colNum]]
     
   } else {
-    #Only impute when an actual is available (otherwise it is a waste of time)
+    #Only impute when an actual is available
     complete.actuals <- complete.cases(dat[, colNum])
     dat.toImpute <- dat[complete.actuals,]
     actuals <- dat.toImpute[[colNum]]
@@ -95,6 +100,7 @@ computePredictions <- function(varName, dat, dag.fit, train = FALSE,
   
   return(data.frame(fits = fits, actuals = actuals))
 }
+
 
 #' Computes the normalized root mean square error for given predictions
 #'
@@ -127,10 +133,11 @@ computeRMSE <- function(pred){
 #' @inheritParams fit.boot
 #' @param dat.train Dataframe to use for parameter fitting
 #' @param dat.val Dataframe to use for prediction
-#' @inheritParams em.parametric
 #' @param penalty Optional argument specifying which penalty was used to learn
 #'   DAGs
 #' @param predictRange Indices of columns in dat.val that should be predicted
+#' @inheritParams fit.boot
+#' 
 validate <- function(threshold, samples, dat.train, dat.val, particles, obs.perParam, 
                      penalty = "", predictRange = 8:24){
   case <- paste(penalty, "_", threshold, sep = "")

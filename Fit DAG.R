@@ -6,12 +6,443 @@ library(dplyr)
 source("Scoring.R")
 
 
+#' ** MAIN FITTING FUNCTIONS **
+
+#' Learns BN structure from data using tabu search with random restarts
+#'
+#' Starts from a given DAG or from a DAG with only the whitelisted arcs. Uses a
+#' hill climber with arc addition, deletion and reversal operations to find
+#' locally optimal graph structures. Score function is the likelihood minus a
+#' term penalizing graph complexity. Uses tabu search and random restart meta
+#' heuristics to decrease the probability of ending up in a local optimum that
+#' is far from the global optimum in score. Exploits score decomposability to
+#' efficiently evaluate the score difference of each neighbouring graph. Can do
+#' most costly computations in parallel (works well for large n, as computing
+#' scores becomes costly in this case).
+#'
+#' Records number of queries involved in computation. Each query involves
+#' computing the score for a single node.
+#'
+#' @param dat dataset to learn BN from
+#' @param penalty determines penalization term on score function. Must be "bic",
+#'   "aic" or a number larger than 0
+#' @param parallel if TRUE, computations are done in parallel where possible,
+#'   using all but one of the available cores on the machine
+#' @param tabuSteps maximum number of steps to do in tabu search
+#' @param tabuLength maximum length of tabu list
+#' @param restarts number of random restarts to do
+#' @param randomMoves number of moves to do on DAG when doing random restart
+#' @param blacklist dataframe indicating which directed arcs are not allowed in
+#'   the DAG that is being learned. Consists of a 'from' and 'to' column
+#' @param whitelist dataframe indicating which directed arcs must be in the DAG
+#' @param dag.start DAG to start search from if necessary
+#'
+#' @return list containing best DAG found and number of queries involved in the
+#'   computation
+#' @export
+#'
+#' @examples
+#' fit.dag(learning.test, penalty = "bic")
+fit.dag <- function(dat, penalty, parallel = TRUE, cl = NULL,
+                    tabuSteps = 10, tabuLength = tabuSteps,
+                    restarts = 0, randomMoves = ncol(dat),
+                    blacklist = NULL, whitelist = NULL,
+                    dag.start = NULL){
+  
+  #If no graph is provided, initialize to empty graph + whitelisted edges
+  if(is.null(dag.start)){
+    dag.current <- initializeDag(names(dat), whitelist)
+    no.queries <- 0
+  }
+  else{
+    dag.current <- dag.start
+    no.queries <- dag.start$learning$ntests
+  }
+  
+  #Initialize cluster and load relevant data, or set cluster to null
+  if(parallel && is.null(cl)){
+    cl <- initializeCluster(dat)
+    on.exit(stopCluster(cl))
+  }
+  
+  #Initialize dataframe of moves and compute current score per node and change
+  #in score from each move
+  initialization <- recompute(dag.current, dat, penalty, cl = cl, 
+                              blacklist = blacklist, whitelist = whitelist)
+  moves <- initialization$moves
+  node.scores <- initialization$nodeScores
+  no.queries <- no.queries + initialization$queries
+  
+  restart <- 0
+  
+  #Track which DAG was the best over all restarts and what its score was
+  dag.best <- dag.current
+  score.best <- sum(node.scores)
+  
+  while(restart <= restarts){
+    converged <- FALSE
+    
+    while(!converged){
+      
+      #Find best move (highest score, not blacklisted, preserves acyclicity)
+      bestMove <- findBestAllowedMove(moves, dag.current)
+      
+      if(as.numeric(bestMove[4]) > 0){
+        #Execute best move. Update DAG, scores for nodes, score differences 
+        #for moves and number of contingency tables computed
+        postMove <- updateHC(bestMove,
+                             dag = dag.current, 
+                             dat = dat, 
+                             moves = moves, 
+                             node.scores = node.scores,
+                             penalty = penalty, 
+                             cl = cl)
+        dag.current <- postMove$dag
+        moves <- postMove$moves
+        node.scores <- postMove$nodeScores
+        no.queries <- no.queries + postMove$queries
+      }
+      #If there is no neighbor with higher score, enter tabu search phase
+      else if (tabuSteps > 0){
+        tabuResult <- tabuSearch(tabuSteps = tabuSteps,
+                                 tabuLength = tabuLength,
+                                 dag.start = dag.current, 
+                                 dat = dat, 
+                                 moves = moves, 
+                                 node.scores = node.scores,
+                                 penalty = penalty,
+                                 cl = cl)
+        
+        #If tabu search returned null, it did not find a DAG with higher
+        #score than the previous best. In this case the search terminates 
+        #(or does a random restart) from the previous best graph. 
+        #Otherwise, we continue searching from the new best graph.
+        if(is.null(tabuResult$dag)){converged <- TRUE}
+        else {
+          dag.current <- tabuResult$dag
+          moves <- tabuResult$moves
+          node.scores <- tabuResult$nodeScores
+        }
+        no.queries <- no.queries + tabuResult$queries
+      }
+      #If no score-increasing move exists and tabu search is not active,
+      #terminate current phase of search
+      else{converged <- TRUE}
+    }
+    
+    #Store DAG it is better than the previous best
+    #Ensure validity of current score by fully recomputing. Associated queries
+    #do not count towards total number of queries in search procedure
+    score.current <- computeScore(dag.current, dat, penalty, cl = cl)
+    if(score.current > score.best){
+      dag.best <- dag.current
+      score.best <- score.current
+      
+      #If a better graph is found, reset number of restarts
+      restart <- 0
+    }
+    
+    #Only go through perturbation procedure if max number of restarts
+    #has not been reached yet.
+    if(restart < restarts){
+      #Perturb graph
+      perturbed <- perturbGraph(randomMoves,
+                                dag = dag.best,
+                                dat = dat,
+                                moves = moves,
+                                penalty = penalty,
+                                cl = cl)
+      
+      #Retrieve perturbed graph and updated moves and node scores
+      dag.current <- perturbed$dag
+      moves <- perturbed$moves
+      node.scores <- perturbed$nodeScores
+      no.queries <- no.queries + perturbed$queries
+    }
+    
+    restart <- restart + 1
+  }
+  
+  #Store number of queries
+  dag.best$learning$ntests <- no.queries
+  return(dag = dag.best)
+}
+
+
+#' Fits DAG with known node ordering and restricted size of parental sets
+#' 
+#' Uses that if the node ordering is known, the score maximization problem
+#' decomposes into finding the best scoring parental set for each node. For
+#' a given maximum number of parents, this can be done in polynomial time.
+#'
+#' @param node.names character vector of ordered(!) node names
+#' @param max.parents maximum number of parents per node
+#' @inheritParams fit.dag
+#'
+#' @return Maximum scoring DAG for given restrictions on node order and parental
+#'   sets
+#'
+#' @export
+fit.dag.ordered <- function(node.names, max.parents, dat, penalty, 
+                            parallel = TRUE){
+  
+  #Initialize DAG and cluster
+  dag.fitted <- empty.graph(node.names)
+  no.nodes <- length(node.names)
+  
+  if(parallel){
+    cl <- initializeCluster(dat)
+    on.exit(stopCluster(cl))
+  }
+  
+  #Computes score for given parent configuration of a node. Returns -Inf if
+  #there is no data for some parental configuration
+  wrapperScore <- function(parents.node, node, dat, penalty, no.nodes){
+    
+    dag <- empty.graph(c(node, parents.node))
+    if(length(parents.node) > 0) {parents(dag, node) <- parents.node}
+    
+    score.node <- computeScore.node(node, dag, dat, penalty, 
+                                    no.nodes = no.nodes)
+    
+    #If any parent configuration has no occurences, we deem it to be 
+    #too complex to learn from our dataset, and give it -Inf score
+    if(is.na(score.node)){score.node <- -Inf}
+    
+    return(score.node)
+  }
+  
+  #Determine optimal parental sets for each node separately (possible due to
+  #known node ordering, which guarantees acyclicity when only nodes earlier in
+  #the ordering are considered as candidate parents)
+  for(i in 2:no.nodes){
+    #Generate list of potential parental sets
+    node <- node.names[i]
+    possible.parents <- lapply(0:min(max.parents, i-1), 
+                               combn, x = node.names[1:(i-1)],
+                               simplify = FALSE) %>% 
+      unlist(., recursive = FALSE)
+    
+    #Compute score for each possible parental configuration.
+    #Only worth incurring paralellization overhead if set of possible
+    #parents is large enough 
+    if(parallel && length(possible.parents) > 100){
+      scores <- parSapply(cl, possible.parents, 
+                          FUN = wrapperScore,
+                          node = node,
+                          dat = dat,
+                          penalty = penalty,
+                          no.nodes = length(node.names))
+    }
+    else{
+      scores <- sapply(possible.parents,
+                       FUN = wrapperScore,
+                       node = node,
+                       dat = dat,
+                       penalty = penalty,
+                       no.nodes = length(node.names))
+    }
+    
+    #Store best parental set
+    bestParents <- possible.parents[[which.max(scores)]]
+    if(length(bestParents) > 0)
+    {parents(dag.fitted, node) <- bestParents}
+  }
+  
+  #Compute and store number of parental configurations that needed to be
+  #recorded
+  no.queries <- sum(sapply(0:max.parents, function(x){choose(1:no.nodes, x)}))
+  dag.fitted$learning$ntests <- no.queries
+  return(dag.fitted)
+}
+
+
+#' Uses a fixed number of EM iterations to learn parameters of a DAG
+#'
+#' Initializes by learning parameters using locally complete data, then imputes
+#' missing values (E-step) and refits parameters (M-step) a given number of
+#' times using likelihood weighted sampling. Allows setting a fixed maximum
+#' number of observations per parameter for computational reasons. These
+#' observations are randomly sampled from the full dataset.
+#'
+#' @param dag DAG structure to learn parameters for
+#' @param dat Dataframe with missing values to learn parameters from
+#' @param max.iter Maximum number of iterations (default is 1)
+#' @param particles Number of samples to use in simulation
+#' @param obs.perParam Number of observations per parameter to learn. Defaults
+#'   to full dataset
+#' @param parallel If TRUE, do data imputation in parallel
+#'
+#' @return DAG with fitted parameters and imputed data after last E-step
+#'
+#' @export
+em.parametric <- function(dag, dat, max.iter = 1, particles = 500, 
+                          obs.perParam = NULL, parallel = FALSE){
+  #Initialize by fitting parameters using locally complete data
+  if(class(dag)[1] != "bn.fit"){
+    if(class(dag)[1] != "bn"){stop("DAG should be either of type bn or type bn.fit")}
+    dag.fit <- bn.fit(dag, dat, replace.unidentifiable = TRUE)
+  }
+  else{
+    dag.fit <- dag
+  }
+  dat.imputed <- NULL
+  converged <- FALSE
+  iteration <- 1
+  
+  #Take subsample of observations if desired
+  if(!is.null(obs.perParam)){
+    no.obs <- min(obs.perParam*nparams(dag.fit), nrow(dat))
+    dat <- sample_n(dat, size = no.obs)
+  }
+  
+  #Iterate until maximum number of iterations is reached
+  while(iteration <= max.iter){
+    iteration <- iteration + 1
+    
+    if(parallel){
+      dat.imputed <- parImpute(dag.fit, dat, particles = particles)
+    } else {
+      dat.imputed <- impute(dag.fit, dat, method = "bayes-lw", n = particles)
+    }
+    
+    dag.fit <- bn.fit(dag, dat.imputed)
+  }
+  
+  return(list(dag = dag.fit, dat = dat.imputed))
+}
+
+#' Uses Structural EM to learn DAG structure from incomplete data
+#'
+#' Iteratively imputes data (E-step) and learns DAG structure from fitted data
+#' (M-step). Continuous until a maximum number of iterations is reached or the
+#' SHD between the new and the previous graph is zero.
+#'
+#' @param dat Incomplete dataframe to learn DAG from
+#' @param max.iter Optional maximum number of iterations
+#' @param penalty Penalization factor to use for scoring, default is "bic"
+#' @inheritParams fit.dag
+#' @inheritParams em.parametric
+#'
+#' @return Fitted DAG
+#' 
+#' @export
+em.structural <- function(dat, tabuSteps = 10, penalty = "bic",
+                          tabuLength = tabuSteps, blacklist = NULL, 
+                          whitelist = NULL, max.iter = Inf, particles = 500,
+                          parallel = FALSE){
+  #Initialize to graph with only whitelisted edges and 
+  dag.current <- initializeDag(names(dat), whitelist)
+  dat.imputed <- dat
+  fitted.current <- bn.fit(dag.current, dat.imputed)
+  
+  converged <- FALSE
+  iteration <- 1
+  
+  while(!converged && iteration <= max.iter){
+    iteration <- iteration + 1
+    
+    #E-step: fit parameters of current network using previously imputed data
+    #and impute data based on new network
+    if(parallel){
+      dat.imputed <- parImpute(fitted.current, dat, particles = particles)
+    } else {
+      dat.imputed <- impute(fitted.current, dat, method = "bayes-lw", n = particles)
+    }
+    
+    #M-step: optimize using completed data
+    dag.new <- fit.dag(dat.imputed, penalty = penalty,
+                       parallel = parallel,
+                       tabuSteps = tabuSteps,
+                       tabuLength = tabuLength,
+                       blacklist = blacklist,
+                       whitelist = whitelist,
+                       dag.start = dag.current)
+    
+    #Use Bayesian fitting if all data is discrete to avoid unidentiability.
+    #If continuous data is also present, use MLE
+    if(all(sapply(dat, is.factor))){
+      fitted.new <- bn.fit(dag.new, dat.imputed, method = "bayes", iss = 1)
+    }
+    else{
+      fitted.new <- bn.fit(dag.new, dat.imputed, replace.unidentifiable = TRUE)
+    }
+    
+    if(shd(dag.current, dag.new) == 0){converged <- TRUE}
+    else{dag.current <- dag.new; fitted.current <- fitted.new}
+  }
+  
+  return(dag.new)
+}
+
+
+#' Learns DAGs using the non-parametric bootstrap
+#'
+#' Repeatedly sample with replacement from original dataset and learn DAGs from
+#' these samples. 
+#'
+#' @param samples Number of DAGs to learn
+#' @param dat Data to obtain bootstrap samples from
+#' @param sampleSize Number of observations to sample. Default is nrow(dat)
+#' @param parallel Bootstrap in parallel if TRUE (default)
+#' @inheritParams fit.dag
+#'
+#' @return List of bn objects learned from bootstrap samples
+#' 
+#' @export
+bootstrap.dag <- function(samples, dat, penalty, 
+                          tabuSteps = 10, tabuLength = tabuSteps, 
+                          blacklist = NULL, whitelist = NULL,  
+                          sampleSize = nrow(dat), parallel = FALSE){
+  require(dplyr)
+  
+  #Obtains bootstrap sample and learns and returns DAG
+  bootstrap.single <- function(dummy, dat, penalty, tabuSteps, tabuLength,
+                               blacklist, whitelist, sampleSize){
+    dat.sample <- sample_n(dat, sampleSize, replace = TRUE)
+    dag.fitted <- fit.dag(dat.sample, penalty = penalty,
+                          parallel = FALSE,
+                          tabuSteps = tabuSteps,
+                          tabuLength = tabuLength,
+                          blacklist = blacklist,
+                          whitelist = whitelist)
+    return(dag.fitted)
+  }
+  
+  #Run in parallel if requested
+  if(parallel){
+    
+    cl <- initializeCluster(dat)
+    on.exit(stopCluster(cl))
+    dag.samples <- parLapplyLB(cl, 1:samples, bootstrap.single, dat = dat, 
+                               penalty = penalty,
+                               tabuSteps = tabuSteps,
+                               tabuLength = tabuLength,
+                               blacklist = blacklist,
+                               whitelist = whitelist,
+                               sampleSize = sampleSize) 
+  } else {
+    dag.samples <- lapply(1:samples, bootstrap.single, dat = dat, 
+                          penalty = penalty,
+                          tabuSteps = tabuSteps,
+                          tabuLength = tabuLength,
+                          blacklist = blacklist,
+                          whitelist = whitelist,
+                          sampleSize = sampleSize)
+  }
+  
+  return(dag.samples)
+}
+
+
+#' ** SUPPORTING FUNCTIONS **
+
 #' Initialize dataframe of possible moves for local search
 #'
 #' The local search algorithm represents possible moves as ordered pairs of
 #' distinct nodes. Whether such a pair represents an arc addition, deletion or
 #' reversal depends on whether the arc is absent (addition), present (deletion)
-#' or reversed (reverse) in the dag that the move acts on.
+#' or reversed (reverse) in the DAG that the move acts on.
 #'
 #' Moves are stored in a dataframe with as columns the from-node, the to-node, a
 #' logical for whether the score difference for this move is still correct for
@@ -507,9 +938,7 @@ tabuSearch <- function(tabuSteps, tabuLength, dag.start, dat, moves,
 #' need updating.
 #'
 #' As the initial DAG is often sparse and the algorithm randomly generates pairs
-#' of nodes to determine the moves, it tends to favor arc additions. I am not
-#' sure whether I am happy with this, I might change this later and see if it
-#' gives a better performance
+#' of nodes to determine the moves, it tends to favor arc additions.
 #'
 #' @param randomMoves number of random moves to do
 #' @inheritParams updateHC
@@ -558,241 +987,7 @@ perturbGraph <- function(randomMoves, dag, dat, moves, penalty, cl){
 
 
 
-#' Learns BN structure from data using tabu search with random restarts
-#'
-#' Starts from the empty graph. Uses a hill climber with arc addition, deletion
-#' and reversal operations to find locally optimal graph structures. Score
-#' function is the likelihood minus a term penalizing graph complexity. Uses
-#' tabu search and random restart meta heuristics to decrease the probability of
-#' ending up in a local optimum that is far from the global optimum in score.
-#' Exploits score decomposability to efficiently evaluate the score difference
-#' of each neighbouring graph. Can do most costly computations in parallel
-#' (works well for large n, as computing scores becomes costly in this case).
-#'
-#' Records number of queries involved in computation. Each query involves
-#' computing the score for a single node.
-#'
-#' @param dat dataset to learn BN from
-#' @param penalty determines penalization term on score function. Must be "bic",
-#'   "aic" or a number larger than 0
-#' @param parallel if TRUE, computations are done in parallel where possible,
-#'   using all but one of the available threads on the machine
-#' @param tabuSteps maximum number of steps to do in tabu search
-#' @param tabuLength maximum length of tabu list
-#' @param restarts number of random restarts to do
-#' @param randomMoves number of moves to do on DAG when doing random restart
-#' @inheritParams initializeMoves
-#'
-#' @return list containing best DAG found and number of queries involved in the
-#'   computation
-#' @export
-#'
-#' @examples
-#' fit.dag(learning.test, penalty = "bic")
-fit.dag <- function(dat, penalty, parallel = TRUE, cl = NULL,
-                    tabuSteps = 10, tabuLength = tabuSteps,
-                    restarts = 0, randomMoves = ncol(dat),
-                    blacklist = NULL, whitelist = NULL,
-                    dag.start = NULL){
-  
-  #If no graph is provided, initialize to empty graph + whitelisted edges
-  if(is.null(dag.start)){
-    dag.current <- initializeDag(names(dat), whitelist)
-    no.queries <- 0
-  }
-  else{
-    dag.current <- dag.start
-    no.queries <- dag.start$learning$ntests
-  }
-  
-  #Initialize cluster and load relevant data, or set cluster to null
-  if(parallel && is.null(cl)){
-    cl <- initializeCluster(dat)
-    on.exit(stopCluster(cl))
-  }
-  
-  #Initialize dataframe of moves and compute current score per node and change
-  #in score from each move
-  initialization <- recompute(dag.current, dat, penalty, cl = cl, 
-                              blacklist = blacklist, whitelist = whitelist)
-  moves <- initialization$moves
-  node.scores <- initialization$nodeScores
-  no.queries <- no.queries + initialization$queries
-  
-  restart <- 0
-  
-  #Track which DAG was the best over all restarts and what its score was
-  dag.best <- dag.current
-  score.best <- sum(node.scores)
-  
-  while(restart <= restarts){
-    converged <- FALSE
-    
-    while(!converged){
-      
-      bestMove <- findBestAllowedMove(moves, dag.current)
-      
-      if(as.numeric(bestMove[4]) > 0){
-        #Execute best move. Update DAG, scores for nodes, score differences 
-        #for moves and number of contingency tables computed
-        postMove <- updateHC(bestMove,
-                             dag = dag.current, 
-                             dat = dat, 
-                             moves = moves, 
-                             node.scores = node.scores,
-                             penalty = penalty, 
-                             cl = cl)
-        dag.current <- postMove$dag
-        moves <- postMove$moves
-        node.scores <- postMove$nodeScores
-        no.queries <- no.queries + postMove$queries
-      }
-      else if (tabuSteps > 0){
-        tabuResult <- tabuSearch(tabuSteps = tabuSteps,
-                                 tabuLength = tabuLength,
-                                 dag.start = dag.current, 
-                                 dat = dat, 
-                                 moves = moves, 
-                                 node.scores = node.scores,
-                                 penalty = penalty,
-                                 cl = cl)
-        
-        #If tabu search returned null, it did not find a DAG with higher
-        #score than the previous best. In this case the search terminates 
-        #(or does a random restart) from the previous best graph. 
-        #Otherwise, we continue searching from the new best graph.
-        if(is.null(tabuResult$dag)){converged <- TRUE}
-        else {
-          dag.current <- tabuResult$dag
-          moves <- tabuResult$moves
-          node.scores <- tabuResult$nodeScores
-        }
-        no.queries <- no.queries + tabuResult$queries
-      }
-      #If no score-increasing move exists and tabu search is not active,
-      #terminate current phase of search
-      else{converged <- TRUE}
-    }
-    
-    score.current <- computeScore(dag.current, dat, penalty, cl = cl)
-    if(score.current > score.best){
-      dag.best <- dag.current
-      score.best <- score.current
-      
-      #If a better graph is found, reset number of restarts
-      restart <- 0
-    }
-    
-    #Only go through perturbation procedure if max number of restarts
-    #has not been reached yet.
-    if(restart < restarts){
-      #Perturb graph
-      perturbed <- perturbGraph(randomMoves,
-                                dag = dag.best,
-                                dat = dat,
-                                moves = moves,
-                                penalty = penalty,
-                                cl = cl)
-      
-      #Retrieve perturbed graph and updated moves and node scores
-      dag.current <- perturbed$dag
-      moves <- perturbed$moves
-      node.scores <- perturbed$nodeScores
-      no.queries <- no.queries + perturbed$queries
-    }
-    
-    restart <- restart + 1
-  }
-  
-  dag.best$learning$ntests <- no.queries
-  return(dag = dag.best)
-}
 
-
-#' Fits DAG with known node order and restricted size of parental sets
-#'
-#' @param node.names character vector of ordered node names
-#' @param max.parents maximum number of parents per node
-#' @inheritParams fit.dag
-#'
-#' @return Maximum scoring DAG for given restrictions on node order and parental
-#'   sets
-#'
-#' @export
-#'
-#' @examples
-fit.dag.ordered <- function(node.names, max.parents, dat, penalty, 
-                            parallel = TRUE){
-  
-  #Initialize DAG and cluster
-  dag.fitted <- empty.graph(node.names)
-  no.nodes <- length(node.names)
-  
-  if(parallel){
-    cl <- initializeCluster(dat)
-    on.exit(stopCluster(cl))
-  }
-  
-  #Computes score for given parent configuration of a node. Returns -Inf if
-  #there is no data for some parental configuration
-  wrapperScore <- function(parents.node, node, dat, penalty, no.nodes){
-    
-    dag <- empty.graph(c(node, parents.node))
-    if(length(parents.node) > 0) {parents(dag, node) <- parents.node}
-    
-    score.node <- computeScore.node(node, dag, dat, penalty, 
-                                    no.nodes = no.nodes)
-    
-    #If any parent configuration has no occurences, we deem it to be 
-    #too complex to learn from our dataset, and give it -Inf score
-    if(is.na(score.node)){score.node <- -Inf}
-    
-    return(score.node)
-  }
-  
-  #Determine optimal parental sets for each node separately (possible due to
-  #known node ordering, which guarantees acyclicity when only nodes earlier in
-  #the ordering are considered as candidate parents)
-  for(i in 2:no.nodes){
-    #Generate list of potential parental sets
-    node <- node.names[i]
-    possible.parents <- lapply(0:min(max.parents, i-1), 
-                               combn, x = node.names[1:(i-1)],
-                               simplify = FALSE) %>% 
-      unlist(., recursive = FALSE)
-    
-    #Compute score for each possible parental configuration.
-    #Only worth incurring paralellization overhead if set of possible
-    #parents is large enough 
-    if(parallel && length(possible.parents) > 100){
-      scores <- parSapply(cl, possible.parents, 
-                          FUN = wrapperScore,
-                          node = node,
-                          dat = dat,
-                          penalty = penalty,
-                          no.nodes = length(node.names))
-    }
-    else{
-      scores <- sapply(possible.parents,
-                       FUN = wrapperScore,
-                       node = node,
-                       dat = dat,
-                       penalty = penalty,
-                       no.nodes = length(node.names))
-    }
-    
-    bestParents <- possible.parents[[which.max(scores)]]
-    
-    if(length(bestParents) > 0)
-    {parents(dag.fitted, node) <- bestParents}
-  }
-  
-  #Compute and store number of parental configurations that needed to be
-  #recorded
-  no.queries <- sum(sapply(0:max.parents, function(x){choose(1:no.nodes, x)}))
-  dag.fitted$learning$ntests <- no.queries
-  return(dag.fitted)
-}
 
 
 #' Impute data in parallel using a fitted Bayesian Network
@@ -829,186 +1024,4 @@ parImpute <- function(dag.fit, dat, particles){
   return(imputed)
 }
 
-
-#' Performs parametric EM for a given DAG
-#'
-#' Initializes by learning parameters using locally complete data, then imputes
-#' missing values (E-step) and refits parameters (M-step) a given number of
-#' times using likelihood weighted sampling. Allows setting a fixed maximum
-#' number of observations per parameter for computational reasons. These
-#' observations are randomly sampled from the full dataset.
-#'
-#' @param dag DAG structure to learn parameters for
-#' @param dat Dataframe with missing values to learn parameters from
-#' @param max.iter Maximum number of iterations (default is 1)
-#' @param particles Number of samples to use in simulation
-#' @param obs.perParam Number of observations per parameter to learn. Defaults
-#'   to full dataset
-#' @param parallel If TRUE, do data imputation in parallel
-#'
-#' @return DAG with fitted parameters and imputed data after last E-step
-#'
-#' @export
-#'
-#' @examples
-em.parametric <- function(dag, dat, max.iter = 1, particles = 500, 
-                          obs.perParam = NULL, parallel = FALSE){
-  #Initialize by fitting parameters using locally complete data
-  if(class(dag)[1] != "bn.fit"){
-    if(class(dag)[1] != "bn"){stop("DAG should be either of type bn or type bn.fit")}
-    dag.fit <- bn.fit(dag, dat, replace.unidentifiable = TRUE)
-  }
-  else{
-    dag.fit <- dag
-  }
-  dat.imputed <- NULL
-  converged <- FALSE
-  iteration <- 1
-  
-  #Take subsample of observations if desired
-  if(!is.null(obs.perParam)){
-    no.obs <- min(obs.perParam*nparams(dag.fit), nrow(dat))
-    dat <- sample_n(dat, size = no.obs)
-  }
-  
-  #Iterate until maximum number of iterations is reached
-  while(!converged && iteration <= max.iter){
-    iteration <- iteration + 1
-    
-    if(parallel){
-      dat.imputed <- parImpute(dag.fit, dat, particles = particles)
-    } else {
-      dat.imputed <- impute(dag.fit, dat, method = "bayes-lw", n = particles)
-    }
-    
-    dag.fit <- bn.fit(dag, dat.imputed)
-    #TODO: add criterion for convergence
-  }
-  
-  return(list(dag = dag.fit, dat = dat.imputed))
-}
-
-#' Uses Structural EM to learn DAG structure from incomplete data
-#'
-#' Iteratively imputes data (E-step) and learns DAG structure from fitted data
-#' (M-step). Continuous until a maximum number of iterations is reached or the
-#' SHD between the new and the previous graph is zero.
-#'
-#' @param dat Incomplete dataframe to learn DAG from
-#' @param max.iter Maximum number of iterations
-#' @param penalty Penalization factor to use for scoring, default is "bic"
-#' @inheritParams fit.dag
-#'
-#' @return Fitted DAG
-#' @export
-#'
-#' @examples
-em.structural <- function(dat, tabuSteps = 10, penalty = "bic",
-                          tabuLength = tabuSteps, blacklist = NULL, 
-                          whitelist = NULL, max.iter = Inf, particles = 500,
-                          parallel = FALSE){
-  #Initialize to graph with only whitelisted edges and 
-  dag.current <- initializeDag(names(dat), whitelist)
-  dat.imputed <- dat
-  fitted.current <- bn.fit(dag.current, dat.imputed)
-  
-  converged <- FALSE
-  iteration <- 1
-  
-  while(!converged && iteration <= max.iter){
-    iteration <- iteration + 1
-    
-    #E-step: fit parameters of current network using previously imputed data
-    #and impute data based on new network
-    if(parallel){
-      dat.imputed <- parImpute(fitted.current, dat, particles = particles)
-    } else {
-      dat.imputed <- impute(fitted.current, dat, method = "bayes-lw", n = particles)
-    }
-    
-    #M-step: optimize using completed data
-    dag.new <- fit.dag(dat.imputed, penalty = penalty,
-                       parallel = parallel,
-                       tabuSteps = tabuSteps,
-                       tabuLength = tabuLength,
-                       blacklist = blacklist,
-                       whitelist = whitelist,
-                       dag.start = dag.current)
-    
-    #Use Bayesian fitting if all data is discrete to avoid unidentiability.
-    #If continuous data is also present, use MLE
-    
-    if(all(sapply(dat, is.factor))){
-      fitted.new <- bn.fit(dag.new, dat.imputed, method = "bayes", iss = 1)
-    }
-    else{
-      fitted.new <- bn.fit(dag.new, dat.imputed, replace.unidentifiable = TRUE)
-    }
-    
-    if(shd(dag.current, dag.new) == 0){converged <- TRUE}
-    else{dag.current <- dag.new; fitted.current <- fitted.new}
-  }
-  
-  return(dag.new)
-}
-
-
-#' Learns DAGs using the non-parametric bootstrap
-#'
-#' Repeatedly sample with replacement from original dataset and learn DAGs from
-#' these samples. 
-#'
-#' @param samples Number of DAGs to learn
-#' @param dat Data to obtain bootstrap samples from
-#' @param sampleSize Number of observations to sample. Default is nrow(dat)
-#' @param parallel Bootstrap in parallel if TRUE (default)
-#' @inheritParams fit.dag
-#'
-#' @return List of bn objects learned from bootstrap samples
-#' @export
-#'
-#' @examples
-bootstrap.dag <- function(samples, dat, penalty, 
-                          tabuSteps = 10, tabuLength = tabuSteps, 
-                          blacklist = NULL, whitelist = NULL,  
-                          sampleSize = nrow(dat), parallel = FALSE){
-  require(dplyr)
-  
-  #Obtains bootstrap sample and learns and returns DAG
-  bootstrap.single <- function(dummy, dat, penalty, tabuSteps, tabuLength,
-                               blacklist, whitelist, sampleSize){
-    dat.sample <- sample_n(dat, sampleSize, replace = TRUE)
-    dag.fitted <- fit.dag(dat.sample, penalty = penalty,
-                          parallel = FALSE,
-                          tabuSteps = tabuSteps,
-                          tabuLength = tabuLength,
-                          blacklist = blacklist,
-                          whitelist = whitelist)
-    return(dag.fitted)
-  }
-  
-  #Run in parallel if requested
-  if(parallel){
-    
-    cl <- initializeCluster(dat)
-    on.exit(stopCluster(cl))
-    dag.samples <- parLapplyLB(cl, 1:samples, bootstrap.single, dat = dat, 
-                               penalty = penalty,
-                               tabuSteps = tabuSteps,
-                               tabuLength = tabuLength,
-                               blacklist = blacklist,
-                               whitelist = whitelist,
-                               sampleSize = sampleSize) 
-  } else {
-    dag.samples <- lapply(1:samples, bootstrap.single, dat = dat, 
-                          penalty = penalty,
-                          tabuSteps = tabuSteps,
-                          tabuLength = tabuLength,
-                          blacklist = blacklist,
-                          whitelist = whitelist,
-                          sampleSize = sampleSize)
-  }
-  
-  return(dag.samples)
-}
 
